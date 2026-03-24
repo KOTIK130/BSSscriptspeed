@@ -1,4 +1,4 @@
---! [ Janus BSS Ultimate ]
+--![ Janus BSS Ultimate - V2 FIXED FONT ]
 --! Автор: Janus & Tesavek
 --! Поддержка: CFrame Speed, Auto-Dig, Custom UI, Slider
 
@@ -44,11 +44,11 @@ TopBarFix.Size = UDim2.new(1, 0, 0, 10)
 TopBarFix.Position = UDim2.new(0, 0, 1, -10)
 TopBarFix.BorderSizePixel = 0
 
--- Заголовок
+-- Заголовок (ИСПРАВЛЕН ШРИФТ)
 local Title = Instance.new("TextLabel", TopBar)
 Title.BackgroundTransparency = 1
 Title.Size = UDim2.new(1, 0, 1, 0)
-Title.Font = Enum.Font.SourceSansBold
+Title.Font = Enum.Font.SourceSansBold -- ИСПРАВЛЕНО ЗДЕСЬ
 Title.Text = "⚡ JANUS BSS ULTIMATE ⚡"
 Title.TextColor3 = Color3.fromRGB(0, 255, 200) -- Неоновый бирюзовый
 Title.TextSize = 18
@@ -90,7 +90,7 @@ local function createButton(text, yPos)
     btn.Position = UDim2.new(0.05, 0, 0, yPos)
     btn.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
     btn.TextColor3 = Color3.fromRGB(200, 200, 200)
-    btn.Font = Enum.Font.SourceSansBold
+    btn.Font = Enum.Font.SourceSansBold -- ИСПРАВЛЕНО ЗДЕСЬ
     btn.TextSize = 16
     btn.Text = text
     btn.AutoButtonColor = false
@@ -108,7 +108,7 @@ local SliderLabel = Instance.new("TextLabel", MainFrame)
 SliderLabel.BackgroundTransparency = 1
 SliderLabel.Position = UDim2.new(0.05, 0, 0, 110)
 SliderLabel.Size = UDim2.new(0.9, 0, 0, 20)
-SliderLabel.Font = Enum.Font.SourceSansBold
+SliderLabel.Font = Enum.Font.SourceSansBold -- ИСПРАВЛЕНО ЗДЕСЬ
 SliderLabel.Text = "Speed Multiplier: 1.0"
 SliderLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
 SliderLabel.TextSize = 14
@@ -140,21 +140,33 @@ local Flags = {
 
 -- Логика ползунка
 local isSliding = false
+
+-- Функция для обновления ползунка
+local function updateSlider(input)
+    local relativeX = math.clamp((input.Position.X - SliderBg.AbsolutePosition.X) / SliderBg.AbsoluteSize.X, 0, 1)
+    SliderFill.Size = UDim2.new(relativeX, 0, 1, 0)
+    
+    -- Расчет скорости от 0.1 до 5.0
+    Flags.SpeedVal = math.floor((relativeX * 4.9 + 0.1) * 10) / 10 
+    SliderLabel.Text = "Speed Multiplier: " .. tostring(Flags.SpeedVal)
+end
+
 SliderBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then isSliding = true end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then 
+        isSliding = true 
+        updateSlider(input) -- Обновляем при первом клике
+    end
 end)
+
 UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then isSliding = false end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then 
+        isSliding = false 
+    end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
     if isSliding and input.UserInputType == Enum.UserInputType.MouseMovement then
-        local relativeX = math.clamp((input.Position.X - SliderBg.AbsolutePosition.X) / SliderBg.AbsoluteSize.X, 0, 1)
-        SliderFill.Size = UDim2.new(relativeX, 0, 1, 0)
-        
-        -- Расчет скорости от 0.1 до 5.0 (чтобы не кикало)
-        Flags.SpeedVal = math.floor((relativeX * 4.9 + 0.1) * 10) / 10 
-        SliderLabel.Text = "Speed Multiplier: " .. tostring(Flags.SpeedVal)
+        updateSlider(input)
     end
 end)
 

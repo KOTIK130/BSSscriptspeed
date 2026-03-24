@@ -1,18 +1,27 @@
---![ Janus BSS Ultimate v4.3 - God Method ]
---! Используется зажатие Mouse1 (как в оригинале игры)
+--![ Janus BSS Ultimate v4.4 - Planter Fix ]
+--! Исправлено: Бинд теперь реально меняет клавишу.
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
 local Window = Rayfield:CreateWindow({
-   Name = "BSS ULTIMATE v4.3",
+   Name = "BSS ULTIMATE v4.4",
    LoadingTitle = "Janus System",
    LoadingSubtitle = "by Janus & Tesavek",
    ConfigurationSaving = { Enabled = false }
 })
 
-local Flags = { Speed = false, SpeedVal = 1, AutoDig = false, AutoPlanter = false }
-local CurrentBind = Enum.KeyCode.One
-local VirtualInputManager = game:GetService("VirtualInputManager")
+local Flags = {
+    Speed = false,
+    SpeedVal = 1,
+    AutoDig = false,
+    AutoPlanter = false
+}
+
+-- Дефолтный бинд - единица
+local SelectedKey = Enum.KeyCode.One
 local Player = game.Players.LocalPlayer
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local UIS = game:GetService("UserInputService")
 
 local MainTab = Window:CreateTab("Главная", 4483362458)
 
@@ -31,20 +40,19 @@ MainTab:CreateSlider({
    Callback = function(Value) Flags.SpeedVal = Value end,
 })
 
--- 2. АВТОДИГ (МЕТОД ЗАЖАТИЯ)
+-- 2. АВТОДИГ (HOLD METHOD)
 MainTab:CreateToggle({
-   Name = "Auto-Dig (HOLD METHOD)",
+   Name = "Auto-Dig",
    CurrentValue = false,
    Callback = function(Value) 
       Flags.AutoDig = Value 
       if not Value then
-          -- При выключении принудительно отжимаем кнопку
           VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
       end
    end,
 })
 
--- 3. ПЛАНТЕР
+-- 3. ПЛАНТЕР (FIXED BIND)
 MainTab:CreateToggle({
    Name = "Auto-Planter",
    CurrentValue = false,
@@ -55,7 +63,14 @@ MainTab:CreateKeybind({
    Name = "Клавиша для Плантера",
    CurrentKeybind = "One",
    HoldToInteract = false,
-   Callback = function(Key) CurrentBind = Key end,
+   Callback = function(Key)
+      SelectedKey = Key -- Здесь теперь сохраняется Enum.KeyCode
+      Rayfield:Notify({
+         Title = "Бинд изменен",
+         Content = "Новая клавиша: " .. tostring(Key.Name),
+         Duration = 2,
+      })
+   end,
 })
 
 -- ==========================================
@@ -72,30 +87,27 @@ game:GetService("RunService").Heartbeat:Connect(function()
     end
 end)
 
--- УЛЬТИМАТИВНЫЙ АВТОДИГ (HOLD)
+-- Автодиг
 task.spawn(function()
     while true do
         task.wait(0.2)
         if Flags.AutoDig then
-            -- Проверяем, держит ли персонаж инструмент
-            local tool = Player.Character and Player.Character:FindFirstChildOfClass("Tool")
-            if tool then
-                -- Мы «зажимаем» кнопку. Это заставляет персонажа копать непрерывно.
-                -- Мы делаем это в цикле на случай, если игра «сбросит» нажатие.
+            if Player.Character and Player.Character:FindFirstChildOfClass("Tool") then
                 VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
             end
         end
     end
 end)
 
--- Плантер
+-- ИСПРАВЛЕННЫЙ ПЛАНТЕР
 task.spawn(function()
     while true do
-        task.wait(1)
-        if Flags.AutoPlanter then
-            VirtualInputManager:SendKeyEvent(true, CurrentBind, false, game)
-            task.wait(0.05)
-            VirtualInputManager:SendKeyEvent(false, CurrentBind, false, game)
+        task.wait(1.5) -- Оптимальная задержка для проверки
+        if Flags.AutoPlanter and not UIS:GetFocusedTextBox() then
+            -- Нажимаем именно ту клавишу, которую ты выбрал в бинде
+            VirtualInputManager:SendKeyEvent(true, SelectedKey, false, game)
+            task.wait(0.1)
+            VirtualInputManager:SendKeyEvent(false, SelectedKey, false, game)
         end
     end
 end)

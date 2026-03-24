@@ -1,6 +1,6 @@
---! [ Janus BSS Ultimate v3.2 - Dynamic Keybinds ]
+--![ Janus BSS Ultimate v3.3 - Raw Injector Input ]
 --! Автор: Janus & Tesavek
---! Поддержка: CFrame Speed, Auto-Dig, Auto-Planter (Custom Bind), Custom UI
+--! Поддержка: CFrame Speed, Raw Auto-Dig (mouse1click), Auto-Planter (Custom Bind)
 
 local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
@@ -17,9 +17,9 @@ end
 -- ==========================================
 -- Настройки Автоматизации
 -- ==========================================
-local PLANTER_DELAY = 1.0 -- Задержка между установками (в секундах)
-local CurrentBind = Enum.KeyCode.One -- Дефолтный бинд
-local isBinding = false -- Флаг режима ожидания клавиши
+local PLANTER_DELAY = 1.0
+local CurrentBind = Enum.KeyCode.One
+local isBinding = false
 
 -- ==========================================
 -- Создание GUI
@@ -32,7 +32,7 @@ ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 local MainFrame = Instance.new("Frame", ScreenGui)
 MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 MainFrame.Position = UDim2.new(0.5, -150, 0.5, -150)
-MainFrame.Size = UDim2.new(0, 300, 0, 330) -- Увеличил высоту для нового элемента
+MainFrame.Size = UDim2.new(0, 300, 0, 330)
 MainFrame.BorderSizePixel = 0
 MainFrame.ClipsDescendants = true
 Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
@@ -53,7 +53,7 @@ local Title = Instance.new("TextLabel", TopBar)
 Title.BackgroundTransparency = 1
 Title.Size = UDim2.new(1, 0, 1, 0)
 Title.Font = Enum.Font.SourceSansBold
-Title.Text = "⚡ JANUS BSS ULTIMATE v3.2 ⚡"
+Title.Text = "⚡ JANUS BSS ULTIMATE v3.3 ⚡"
 Title.TextColor3 = Color3.fromRGB(0, 255, 200)
 Title.TextSize = 18
 
@@ -125,7 +125,7 @@ SliderBtn.BackgroundTransparency = 1
 SliderBtn.Size = UDim2.new(1, 0, 1, 0)
 SliderBtn.Text = ""
 
-local AutoDigToggle = createButton("Auto Dig (Clicker): OFF", 155)
+local AutoDigToggle = createButton("Auto Dig (mouse1click): OFF", 155)
 
 -- Контейнер для Auto-Planter (Кнопка вкл/выкл + Кнопка бинда)
 local PlanterFrame = Instance.new("Frame", MainFrame)
@@ -195,7 +195,7 @@ end)
 
 AutoDigToggle.MouseButton1Click:Connect(function()
     Flags.AutoDig = not Flags.AutoDig
-    AutoDigToggle.Text = Flags.AutoDig and "Auto Dig (Clicker): ON" or "Auto Dig (Clicker): OFF"
+    AutoDigToggle.Text = Flags.AutoDig and "Auto Dig (mouse1click): ON" or "Auto Dig (mouse1click): OFF"
     AutoDigToggle.TextColor3 = Flags.AutoDig and Color3.fromRGB(0, 255, 200) or Color3.fromRGB(200, 200, 200)
 end)
 
@@ -207,23 +207,21 @@ end)
 
 -- Логика бинда клавиши
 BindButton.MouseButton1Click:Connect(function()
-    if isBinding then return end -- Предотвращаем множественные клики
+    if isBinding then return end 
     isBinding = true
     BindButton.Text = "[...]"
-    BindButton.BackgroundColor3 = Color3.fromRGB(100, 50, 50) -- Цвет ожидания
+    BindButton.BackgroundColor3 = Color3.fromRGB(100, 50, 50) 
 end)
 
 UserInputService.InputBegan:Connect(function(input, gpe)
-    -- Обработка изменения бинда
     if isBinding and input.UserInputType == Enum.UserInputType.Keyboard then
         CurrentBind = input.KeyCode
         BindButton.Text = "[" .. CurrentBind.Name .. "]"
         BindButton.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
         isBinding = false
-        return -- Выходим, чтобы не сработало скрытие меню, если биндили Insert
+        return 
     end
 
-    -- Скрытие меню на Insert
     if not gpe and input.KeyCode == Enum.KeyCode.Insert then
         MainFrame.Visible = not MainFrame.Visible
     end
@@ -244,12 +242,15 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- 2. Auto-Dig
-local VirtualUser = game:GetService("VirtualUser")
+-- 2. Auto-Dig (Сырой инжекторный клик)
 task.spawn(function()
     while task.wait(0.05) do
         if Flags.AutoDig then
-            VirtualUser:ClickButton1(Vector2.new(0,0))
+            if mouse1click then
+                mouse1click()
+            else
+                warn("[Janus] Твой инжектор не поддерживает mouse1click(). Авто-Диг не будет работать.")
+            end
         end
     end
 end)
@@ -265,4 +266,4 @@ task.spawn(function()
     end
 end)
 
-print("[Janus] V3.2 Loaded. Dynamic Keybinds Active.")
+print("[Janus] V3.3 Loaded. Raw Inputs Ready.")

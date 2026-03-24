@@ -1,12 +1,12 @@
---![ Janus BSS Ultimate v4.8 ]
---! Исправлено: Глобальное обновление переменной бинда.
---! Auto-Dig: Метод зажатия.
+--![ Janus BSS Ultimate v4.9 - Internal Bypass ]
+--! Метод: Прямой вызов функций игрового клиента.
+--! Больше никакого VirtualInputManager для биндов.
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "BSS ULTIMATE v4.8",
-   LoadingTitle = "Janus System",
+   Name = "BSS ULTIMATE v4.9",
+   LoadingTitle = "Janus System [INTERNAL]",
    LoadingSubtitle = "by Janus & Tesavek",
    ConfigurationSaving = { Enabled = false }
 })
@@ -18,12 +18,11 @@ local Flags = {
     AutoPlanter = false
 }
 
--- ПЕРЕМЕННАЯ БИНДА (Строго KeyCode)
-local SelectedKeyCode = Enum.KeyCode.One
+-- Теперь мы храним не клавишу, а НОМЕР слота (1, 2, 3... 6)
+local SlotNumber = 1
 
 local Player = game.Players.LocalPlayer
 local VIM = game:GetService("VirtualInputManager")
-local UIS = game:GetService("UserInputService")
 
 local MainTab = Window:CreateTab("Главная", 4483362458)
 
@@ -54,7 +53,7 @@ MainTab:CreateToggle({
    end,
 })
 
--- 3. ПЛАНТЕР
+-- 3. ПЛАНТЕР (Через слот)
 MainTab:CreateToggle({
    Name = "Auto-Planter",
    CurrentValue = false,
@@ -66,21 +65,25 @@ MainTab:CreateKeybind({
    CurrentKeybind = "One",
    HoldToInteract = false,
    Callback = function(Key)
-      -- Принудительная перезапись
-      SelectedKeyCode = Key
+      -- Конвертируем название клавиши в число для слота
+      local keyName = tostring(Key.Name)
+      local numMap = {["One"]=1, ["Two"]=2, ["Three"]=3, ["Four"]=4, ["Five"]=5, ["Six"]=6}
+      
+      SlotNumber = numMap[keyName] or 1
+      
       Rayfield:Notify({
-         Title = "БИНД ОБНОВЛЕН",
-         Content = "Теперь жмем: " .. tostring(Key.Name),
+         Title = "СЛОТ УСТАНОВЛЕН",
+         Content = "Используем слот №" .. tostring(SlotNumber),
          Duration = 2
       })
    end,
 })
 
 -- ==========================================
--- ЯДРО СКРИПТА
+-- ЛОГИКА (БЕЗ ЭМУЛЯЦИИ КЛАВИАТУРЫ)
 -- ==========================================
 
--- Speed Logic
+-- Скорость
 game:GetService("RunService").Heartbeat:Connect(function()
     if Flags.Speed and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
         local hum = Player.Character:FindFirstChild("Humanoid")
@@ -90,7 +93,7 @@ game:GetService("RunService").Heartbeat:Connect(function()
     end
 end)
 
--- Dig Logic
+-- Автодиг
 task.spawn(function()
     while true do
         task.wait(0.2)
@@ -102,15 +105,21 @@ task.spawn(function()
     end
 end)
 
--- Planter Logic (FIXED)
+-- ПЛАНТЕР (ПРЯМОЙ ВЫЗОВ ИЗ МОДУЛЯ ИГРЫ)
 task.spawn(function()
+    local clientStat = require(game:GetService("ReplicatedStorage").Libs.ClientStat)
     while true do
-        task.wait(0.8) -- Твой кулдаун
-        if Flags.AutoPlanter and not UIS:GetFocusedTextBox() then
-            -- Прожимаем именно тот KeyCode, который лежит в переменной
-            VIM:SendKeyEvent(true, SelectedKeyCode, false, game)
-            task.wait(0.05)
-            VIM:SendKeyEvent(false, SelectedKeyCode, false, game)
+        task.wait(0.8)
+        if Flags.AutoPlanter then
+            -- Вызываем функцию использования предмета из слота напрямую
+            -- Это обходит все баги твоего экзекутора с клавиатурой
+            local item = clientStat.Get("Hotbar")[SlotNumber]
+            if item then
+                game:GetService("ReplicatedStorage").Events.PlayerAction:FireServer({
+                    ["Com"] = "UseItem",
+                    ["Item"] = item
+                })
+            end
         end
     end
 end)

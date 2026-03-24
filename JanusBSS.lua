@@ -8,7 +8,7 @@ local Window = Rayfield:CreateWindow({
    Name = "BSS ULTIMATE v5.0",
    LoadingTitle = "Janus System [SELECTOR]",
    LoadingSubtitle = "by Janus & Tesavek",
-   ConfigurationSaving = { Enabled = false }
+   ConfigurationSaving = { Enabled = true }
 })
 
 local Flags = {
@@ -115,13 +115,13 @@ end)
 -- ПЛАНТЕР (ЖЕСТКИЙ СПАМ ВЫБРАННОГО СЛОТА)
 task.spawn(function()
     while true do
-        task.wait(0.8) -- Твой кулдаун
+        task.wait(3) -- Твой кулдаун
         if Flags.AutoPlanter and not UIS:GetFocusedTextBox() then
             local KeyToPress = SlotToKey[SelectedSlot]
             
             -- Посылаем сигнал нажатия
             VIM:SendKeyEvent(true, KeyToPress, false, game)
-            task.wait(0.05)
+            task.wait(1)
             VIM:SendKeyEvent(false, KeyToPress, false, game)
             
             -- На случай если VIM тупит, дублируем пакет использования

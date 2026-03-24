@@ -242,14 +242,20 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- 2. Auto-Dig (Сырой инжекторный клик)
+-- 2. Auto-Dig (Forced Tool Activation - БЕЗ привязки к курсору)
 task.spawn(function()
-    while task.wait(0.05) do
+    while task.wait(0.05) do -- Задержка между взмахами
         if Flags.AutoDig then
-            if mouse1click then
-                mouse1click()
-            else
-                warn("[Janus] Твой инжектор не поддерживает mouse1click(). Авто-Диг не будет работать.")
+            local character = Player.Character
+            if character then
+                -- Ищем любой объект класса "Tool", который сейчас в руках
+                for _, item in ipairs(character:GetChildren()) do
+                    if item:IsA("Tool") then
+                        -- Принудительно вызываем метод активации инструмента
+                        item:Activate()
+                        break -- Нашли инструмент, активировали, ждем следующий цикл
+                    end
+                end
             end
         end
     end

@@ -1,10 +1,11 @@
---![ Janus BSS Ultimate v4.6 ]
---! Изменено: Кулдаун плантера установлен на 0.8
+--![ Janus BSS Ultimate v4.8 ]
+--! Исправлено: Глобальное обновление переменной бинда.
+--! Auto-Dig: Метод зажатия.
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "BSS ULTIMATE v4.6",
+   Name = "BSS ULTIMATE v4.8",
    LoadingTitle = "Janus System",
    LoadingSubtitle = "by Janus & Tesavek",
    ConfigurationSaving = { Enabled = false }
@@ -17,9 +18,11 @@ local Flags = {
     AutoPlanter = false
 }
 
-local CurrentKey = Enum.KeyCode.One
+-- ПЕРЕМЕННАЯ БИНДА (Строго KeyCode)
+local SelectedKeyCode = Enum.KeyCode.One
+
 local Player = game.Players.LocalPlayer
-local VirtualInputManager = game:GetService("VirtualInputManager")
+local VIM = game:GetService("VirtualInputManager")
 local UIS = game:GetService("UserInputService")
 
 local MainTab = Window:CreateTab("Главная", 4483362458)
@@ -46,12 +49,12 @@ MainTab:CreateToggle({
    Callback = function(Value) 
       Flags.AutoDig = Value 
       if not Value then
-          VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+          VIM:SendMouseButtonEvent(0, 0, 0, false, game, 0)
       end
    end,
 })
 
--- 3. ПЛАНТЕР (Кулдаун 0.8)
+-- 3. ПЛАНТЕР
 MainTab:CreateToggle({
    Name = "Auto-Planter",
    CurrentValue = false,
@@ -63,25 +66,21 @@ MainTab:CreateKeybind({
    CurrentKeybind = "One",
    HoldToInteract = false,
    Callback = function(Key)
-      if typeof(Key) == "EnumItem" then
-          CurrentKey = Key
-      elseif typeof(Key) == "string" then
-          CurrentKey = Enum.KeyCode[Key]
-      end
-      
+      -- Принудительная перезапись
+      SelectedKeyCode = Key
       Rayfield:Notify({
-         Title = "Бинд обновлен",
-         Content = "Кнопка: " .. tostring(CurrentKey.Name),
+         Title = "БИНД ОБНОВЛЕН",
+         Content = "Теперь жмем: " .. tostring(Key.Name),
          Duration = 2
       })
    end,
 })
 
 -- ==========================================
--- ЛОГИКА
+-- ЯДРО СКРИПТА
 -- ==========================================
 
--- Скорость
+-- Speed Logic
 game:GetService("RunService").Heartbeat:Connect(function()
     if Flags.Speed and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
         local hum = Player.Character:FindFirstChild("Humanoid")
@@ -91,28 +90,27 @@ game:GetService("RunService").Heartbeat:Connect(function()
     end
 end)
 
--- Автодиг
+-- Dig Logic
 task.spawn(function()
     while true do
         task.wait(0.2)
         if Flags.AutoDig then
             if Player.Character and Player.Character:FindFirstChildOfClass("Tool") then
-                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+                VIM:SendMouseButtonEvent(0, 0, 0, true, game, 0)
             end
         end
     end
 end)
 
--- ПЛАНТЕР (КУЛДАУН 0.8)
+-- Planter Logic (FIXED)
 task.spawn(function()
     while true do
         task.wait(0.8) -- Твой кулдаун
         if Flags.AutoPlanter and not UIS:GetFocusedTextBox() then
-            VirtualInputManager:SendKeyEvent(true, CurrentKey, false, game)
+            -- Прожимаем именно тот KeyCode, который лежит в переменной
+            VIM:SendKeyEvent(true, SelectedKeyCode, false, game)
             task.wait(0.05)
-            VirtualInputManager:SendKeyEvent(false, CurrentKey, false, game)
+            VIM:SendKeyEvent(false, SelectedKeyCode, false, game)
         end
     end
 end)
-
-print("Janus v4.6 Loaded. Planter cooldown: 0.8s")

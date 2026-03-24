@@ -67,7 +67,7 @@ MainTab:CreateKeybind({
    Callback = function(Key)
       -- Конвертируем название клавиши в число для слота
       local keyName = tostring(Key.Name)
-      local numMap = {["One"]=1, ["Two"]=2, ["Three"]=3, ["Four"]=4, ["Five"]=5, ["Six"]=6}
+      local numMap = {["One"]=1, ["Two"]=2, ["Three"]=3, ["Four"]=4, ["Five"]=5, ["Six"]=6, ["Seven"]=7}
       
       SlotNumber = numMap[keyName] or 1
       

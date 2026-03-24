@@ -1,10 +1,10 @@
---![ Janus BSS Ultimate v4.4 - Planter Fix ]
---! Исправлено: Бинд теперь реально меняет клавишу.
+--![ Janus BSS Ultimate v4.6 ]
+--! Изменено: Кулдаун плантера установлен на 0.8
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "BSS ULTIMATE v4.4",
+   Name = "BSS ULTIMATE v4.6",
    LoadingTitle = "Janus System",
    LoadingSubtitle = "by Janus & Tesavek",
    ConfigurationSaving = { Enabled = false }
@@ -17,8 +17,7 @@ local Flags = {
     AutoPlanter = false
 }
 
--- Дефолтный бинд - единица
-local SelectedKey = Enum.KeyCode.One
+local CurrentKey = Enum.KeyCode.One
 local Player = game.Players.LocalPlayer
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local UIS = game:GetService("UserInputService")
@@ -40,7 +39,7 @@ MainTab:CreateSlider({
    Callback = function(Value) Flags.SpeedVal = Value end,
 })
 
--- 2. АВТОДИГ (HOLD METHOD)
+-- 2. АВТОДИГ
 MainTab:CreateToggle({
    Name = "Auto-Dig",
    CurrentValue = false,
@@ -52,7 +51,7 @@ MainTab:CreateToggle({
    end,
 })
 
--- 3. ПЛАНТЕР (FIXED BIND)
+-- 3. ПЛАНТЕР (Кулдаун 0.8)
 MainTab:CreateToggle({
    Name = "Auto-Planter",
    CurrentValue = false,
@@ -60,15 +59,20 @@ MainTab:CreateToggle({
 })
 
 MainTab:CreateKeybind({
-   Name = "Клавиша для Плантера",
+   Name = "Клавиша Плантера",
    CurrentKeybind = "One",
    HoldToInteract = false,
    Callback = function(Key)
-      SelectedKey = Key -- Здесь теперь сохраняется Enum.KeyCode
+      if typeof(Key) == "EnumItem" then
+          CurrentKey = Key
+      elseif typeof(Key) == "string" then
+          CurrentKey = Enum.KeyCode[Key]
+      end
+      
       Rayfield:Notify({
-         Title = "Бинд изменен",
-         Content = "Новая клавиша: " .. tostring(Key.Name),
-         Duration = 2,
+         Title = "Бинд обновлен",
+         Content = "Кнопка: " .. tostring(CurrentKey.Name),
+         Duration = 2
       })
    end,
 })
@@ -99,15 +103,16 @@ task.spawn(function()
     end
 end)
 
--- ИСПРАВЛЕННЫЙ ПЛАНТЕР
+-- ПЛАНТЕР (КУЛДАУН 0.8)
 task.spawn(function()
     while true do
-        task.wait(1.5) -- Оптимальная задержка для проверки
+        task.wait(0.8) -- Твой кулдаун
         if Flags.AutoPlanter and not UIS:GetFocusedTextBox() then
-            -- Нажимаем именно ту клавишу, которую ты выбрал в бинде
-            VirtualInputManager:SendKeyEvent(true, SelectedKey, false, game)
-            task.wait(0.1)
-            VirtualInputManager:SendKeyEvent(false, SelectedKey, false, game)
+            VirtualInputManager:SendKeyEvent(true, CurrentKey, false, game)
+            task.wait(0.05)
+            VirtualInputManager:SendKeyEvent(false, CurrentKey, false, game)
         end
     end
 end)
+
+print("Janus v4.6 Loaded. Planter cooldown: 0.8s")

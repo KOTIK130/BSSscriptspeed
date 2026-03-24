@@ -1,82 +1,210 @@
---! [ JanusBSS GUI v4.0 - Hardened ]
-local CoreGui = game:GetService("CoreGui")
-local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
-local Player = game.Players.LocalPlayer
-local Mouse = Player:GetMouse()
+--! [ Janus BSS Ultimate ]
+--! Автор: Janus & Tesavek
+--! Поддержка: CFrame Speed, Auto-Dig, Custom UI, Slider
 
-local ScreenGui = Instance.new("ScreenGui", CoreGui)
-ScreenGui.Name = "JanusBSS_UI"
+local CoreGui = game:GetService("CoreGui")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Player = Players.LocalPlayer
+
+-- Уничтожаем старую версию, если скрипт запускается повторно
+if CoreGui:FindFirstChild("JanusBSS_Ultimate") then
+    CoreGui.JanusBSS_Ultimate:Destroy()
+end
+
+-- Основной GUI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "JanusBSS_Ultimate"
+ScreenGui.Parent = CoreGui
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-local Frame = Instance.new("Frame", ScreenGui)
-Frame.Name = "MainFrame"
-Frame.Size = UDim2.new(0, 220, 0, 180)
-Frame.Position = UDim2.new(0.5, -110, 0.5, -90)
-Frame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
-Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 8)
+-- Главное окно
+local MainFrame = Instance.new("Frame")
+MainFrame.Parent = ScreenGui
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25) -- Глубокий темный
+MainFrame.Position = UDim2.new(0.5, -150, 0.5, -125)
+MainFrame.Size = UDim2.new(0, 300, 0, 260)
+MainFrame.BorderSizePixel = 0
+MainFrame.ClipsDescendants = true
+local MainCorner = Instance.new("UICorner", MainFrame)
+MainCorner.CornerRadius = UDim.new(0, 8)
 
--- Функция перетаскивания (Custom)
-local Dragging, DragInput, DragStart, StartPos
-Frame.InputBegan:Connect(function(input)
+-- Верхняя панель (Для перетаскивания)
+local TopBar = Instance.new("Frame")
+TopBar.Parent = MainFrame
+TopBar.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+TopBar.Size = UDim2.new(1, 0, 0, 40)
+TopBar.BorderSizePixel = 0
+local TopCorner = Instance.new("UICorner", TopBar)
+TopCorner.CornerRadius = UDim.new(0, 8)
+local TopBarFix = Instance.new("Frame", TopBar) -- Убирает скругление снизу
+TopBarFix.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+TopBarFix.Size = UDim2.new(1, 0, 0, 10)
+TopBarFix.Position = UDim2.new(0, 0, 1, -10)
+TopBarFix.BorderSizePixel = 0
+
+-- Заголовок
+local Title = Instance.new("TextLabel", TopBar)
+Title.BackgroundTransparency = 1
+Title.Size = UDim2.new(1, 0, 1, 0)
+Title.Font = Enum.Font.SourceSansBold
+Title.Text = "⚡ JANUS BSS ULTIMATE ⚡"
+Title.TextColor3 = Color3.fromRGB(0, 255, 200) -- Неоновый бирюзовый
+Title.TextSize = 18
+
+-- ==========================================
+-- Идеальная логика перетаскивания (Custom Drag)
+-- ==========================================
+local dragging, dragInput, dragStart, startPos
+TopBar.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        Dragging = true
-        DragStart = input.Position
-        StartPos = Frame.Position
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
     end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragInput = input
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+-- ==========================================
+-- Создание элементов управления
+-- ==========================================
+local function createButton(text, yPos)
+    local btn = Instance.new("TextButton", MainFrame)
+    btn.Size = UDim2.new(0.9, 0, 0, 35)
+    btn.Position = UDim2.new(0.05, 0, 0, yPos)
+    btn.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+    btn.TextColor3 = Color3.fromRGB(200, 200, 200)
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextSize = 16
+    btn.Text = text
+    btn.AutoButtonColor = false
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    return btn
+end
+
+local SpeedToggle = createButton("CFrame Speed: OFF", 60)
+local AutoDigToggle = createButton("Auto Dig (Equip Tool): OFF", 200)
+
+-- ==========================================
+-- Ползунок скорости (Slider)
+-- ==========================================
+local SliderLabel = Instance.new("TextLabel", MainFrame)
+SliderLabel.BackgroundTransparency = 1
+SliderLabel.Position = UDim2.new(0.05, 0, 0, 110)
+SliderLabel.Size = UDim2.new(0.9, 0, 0, 20)
+SliderLabel.Font = Enum.Font.SourceSansBold
+SliderLabel.Text = "Speed Multiplier: 1.0"
+SliderLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+SliderLabel.TextSize = 14
+
+local SliderBg = Instance.new("Frame", MainFrame)
+SliderBg.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
+SliderBg.Position = UDim2.new(0.05, 0, 0, 135)
+SliderBg.Size = UDim2.new(0.9, 0, 0, 35)
+Instance.new("UICorner", SliderBg).CornerRadius = UDim.new(0, 6)
+
+local SliderFill = Instance.new("Frame", SliderBg)
+SliderFill.BackgroundColor3 = Color3.fromRGB(0, 255, 200)
+SliderFill.Size = UDim2.new(0.2, 0, 1, 0) -- Дефолт 20% (Множитель 1.0)
+Instance.new("UICorner", SliderFill).CornerRadius = UDim.new(0, 6)
+
+local SliderBtn = Instance.new("TextButton", SliderBg)
+SliderBtn.BackgroundTransparency = 1
+SliderBtn.Size = UDim2.new(1, 0, 1, 0)
+SliderBtn.Text = ""
+
+-- ==========================================
+-- Игровая Логика и Функции
+-- ==========================================
+local Flags = {
+    Speed = false,
+    SpeedVal = 1.0,
+    AutoDig = false
+}
+
+-- Логика ползунка
+local isSliding = false
+SliderBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then isSliding = true end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then isSliding = false end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement and Dragging then
-        local delta = input.Position - DragStart
-        Frame.Position = UDim2.new(StartPos.X.Scale, StartPos.X.Offset + delta.X, StartPos.Y.Scale, StartPos.Y.Offset + delta.Y)
+    if isSliding and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local relativeX = math.clamp((input.Position.X - SliderBg.AbsolutePosition.X) / SliderBg.AbsoluteSize.X, 0, 1)
+        SliderFill.Size = UDim2.new(relativeX, 0, 1, 0)
+        
+        -- Расчет скорости от 0.1 до 5.0 (чтобы не кикало)
+        Flags.SpeedVal = math.floor((relativeX * 4.9 + 0.1) * 10) / 10 
+        SliderLabel.Text = "Speed Multiplier: " .. tostring(Flags.SpeedVal)
     end
 end)
 
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then Dragging = false end
+-- Логика кнопок
+SpeedToggle.MouseButton1Click:Connect(function()
+    Flags.Speed = not Flags.Speed
+    SpeedToggle.Text = Flags.Speed and "CFrame Speed: ON" or "CFrame Speed: OFF"
+    SpeedToggle.TextColor3 = Flags.Speed and Color3.fromRGB(0, 255, 200) or Color3.fromRGB(200, 200, 200)
 end)
 
--- Заголовок
-local Title = Instance.new("TextLabel", Frame)
-Title.Text = "JANUS BSS"
-Title.Size = UDim2.new(1, 0, 0, 40)
-Title.BackgroundTransparency = 1
-Title.TextColor3 = Color3.fromRGB(0, 255, 255)
-Title.Font = Enum.Font.CodeBold
-Title.TextSize = 18
-
--- Кнопка Toggle
-local ToggleBtn = Instance.new("TextButton", Frame)
-ToggleBtn.Text = "SPEED OFF"
-ToggleBtn.Size = UDim2.new(0.8, 0, 0, 40)
-ToggleBtn.Position = UDim2.new(0.1, 0, 0.5, 0)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 150)
-Instance.new("UICorner", ToggleBtn).CornerRadius = UDim.new(0, 5)
-
-local SpeedEnabled = false
-ToggleBtn.MouseButton1Click:Connect(function()
-    SpeedEnabled = not SpeedEnabled
-    ToggleBtn.Text = SpeedEnabled and "SPEED ON" or "SPEED OFF"
-    ToggleBtn.BackgroundColor3 = SpeedEnabled and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(0, 150, 150)
+AutoDigToggle.MouseButton1Click:Connect(function()
+    Flags.AutoDig = not Flags.AutoDig
+    AutoDigToggle.Text = Flags.AutoDig and "Auto Dig (Equip Tool): ON" or "Auto Dig (Equip Tool): OFF"
+    AutoDigToggle.TextColor3 = Flags.AutoDig and Color3.fromRGB(0, 255, 200) or Color3.fromRGB(200, 200, 200)
 end)
 
--- Перемещение
+-- Скрытие меню на Insert
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if not gpe and input.KeyCode == Enum.KeyCode.Insert then
+        MainFrame.Visible = not MainFrame.Visible
+    end
+end)
+
+-- ==========================================
+-- Главные рабочие циклы (Обход античита BSS)
+-- ==========================================
+
+-- 1. Цикл скорости (выполняется каждый кадр)
 RunService.RenderStepped:Connect(function()
-    if SpeedEnabled and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
-        local HRP = Player.Character.HumanoidRootPart
-        local Dir = Player.Character.Humanoid.MoveDirection
-        if Dir.Magnitude > 0 then
-            HRP.CFrame = HRP.CFrame + (Dir * 0.8)
+    if Flags.Speed and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
+        local hrp = Player.Character.HumanoidRootPart
+        local hum = Player.Character:FindFirstChild("Humanoid")
+        if hum and hum.MoveDirection.Magnitude > 0 then
+            -- Перемещаем физически, игнорируя WalkSpeed
+            hrp.CFrame = hrp.CFrame + (hum.MoveDirection * Flags.SpeedVal)
         end
     end
 end)
 
--- Скрытие
-UserInputService.InputBegan:Connect(function(input, gpe)
-    if not gpe and input.KeyCode == Enum.KeyCode.Insert then
-        Frame.Visible = not Frame.Visible
+-- 2. Цикл авто-копания (Асинхронный поток)
+task.spawn(function()
+    while task.wait(0.1) do -- Кликает примерно 10 раз в секунду
+        if Flags.AutoDig and Player.Character then
+            -- Ищем инструмент в руках персонажа
+            local tool = Player.Character:FindFirstChildOfClass("Tool")
+            if tool then
+                tool:Activate() -- Эмулирует клик левой кнопкой мыши по инструменту
+            end
+        end
     end
 end)
 
-print("[Janus] V4 Loaded and Forced.")
+print("[Janus] Ultimate GUI Loaded. Press INSERT to toggle visibility.")

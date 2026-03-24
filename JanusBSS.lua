@@ -1,28 +1,19 @@
---![ Janus BSS Ultimate v4.2 - The Final Fix ]
---! Auto-Dig: Пакетный метод (Не использует мышь)
---! Speed & Planter: Стабильные циклы
+--![ Janus BSS Ultimate v4.3 - God Method ]
+--! Используется зажатие Mouse1 (как в оригинале игры)
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
-
 local Window = Rayfield:CreateWindow({
-   Name = "BSS ULTIMATE v4.2",
-   LoadingTitle = "Janus System v4.2",
+   Name = "BSS ULTIMATE v4.3",
+   LoadingTitle = "Janus System",
    LoadingSubtitle = "by Janus & Tesavek",
-   ConfigurationSaving = { Enabled = false },
-   KeySystem = false
+   ConfigurationSaving = { Enabled = false }
 })
 
-local Flags = {
-    Speed = false,
-    SpeedVal = 1,
-    AutoDig = false,
-    AutoPlanter = false
-}
+local Flags = { Speed = false, SpeedVal = 1, AutoDig = false, AutoPlanter = false }
 local CurrentBind = Enum.KeyCode.One
-local Player = game.Players.LocalPlayer
 local VirtualInputManager = game:GetService("VirtualInputManager")
+local Player = game.Players.LocalPlayer
 
--- Вкладка
 local MainTab = Window:CreateTab("Главная", 4483362458)
 
 -- 1. СКОРОСТЬ
@@ -36,16 +27,21 @@ MainTab:CreateSlider({
    Name = "Множитель скорости",
    Range = {1, 10},
    Increment = 0.5,
-   Suffix = "x",
    CurrentValue = 1,
    Callback = function(Value) Flags.SpeedVal = Value end,
 })
 
--- 2. АВТОДИГ (ПАКЕТНЫЙ - МЫШЬ СВОБОДНА)
+-- 2. АВТОДИГ (МЕТОД ЗАЖАТИЯ)
 MainTab:CreateToggle({
-   Name = "Auto-Dig (Packet Method)",
+   Name = "Auto-Dig (HOLD METHOD)",
    CurrentValue = false,
-   Callback = function(Value) Flags.AutoDig = Value end,
+   Callback = function(Value) 
+      Flags.AutoDig = Value 
+      if not Value then
+          -- При выключении принудительно отжимаем кнопку
+          VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+      end
+   end,
 })
 
 -- 3. ПЛАНТЕР
@@ -63,7 +59,7 @@ MainTab:CreateKeybind({
 })
 
 -- ==========================================
--- ЛОГИКА (БЕЗ КОНФЛИКТОВ)
+-- ЛОГИКА
 -- ==========================================
 
 -- Скорость
@@ -76,18 +72,17 @@ game:GetService("RunService").Heartbeat:Connect(function()
     end
 end)
 
--- ПАКЕТНЫЙ АВТОДИГ (Самый топ)
+-- УЛЬТИМАТИВНЫЙ АВТОДИГ (HOLD)
 task.spawn(function()
     while true do
-        task.wait(0.05) -- Очень быстрый сбор
+        task.wait(0.2)
         if Flags.AutoDig then
+            -- Проверяем, держит ли персонаж инструмент
             local tool = Player.Character and Player.Character:FindFirstChildOfClass("Tool")
-            if tool and tool:FindFirstChild("ClickEvent") then
-                -- Отправляем сигнал активации напрямую, минуя клик мыши
-                tool.ClickEvent:FireServer(Player:GetMouse().Hit.Position)
-            elseif tool then
-                -- Если специфического ивента нет, используем безопасную активацию
-                tool:Activate()
+            if tool then
+                -- Мы «зажимаем» кнопку. Это заставляет персонажа копать непрерывно.
+                -- Мы делаем это в цикле на случай, если игра «сбросит» нажатие.
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
             end
         end
     end
@@ -104,9 +99,3 @@ task.spawn(function()
         end
     end
 end)
-
-Rayfield:Notify({
-   Title = "Система готова",
-   Content = "Автодиг больше не трогает твою мышь!",
-   Duration = 5,
-})

@@ -1,20 +1,17 @@
---![ Janus BSS Ultimate v4.0 - Rayfield Edition ]
---! Только твои функции: Speed, Auto-Dig, Auto-Planter.
---! Используется стабильная библиотека Rayfield.
+--![ Janus BSS Ultimate v4.2 - The Final Fix ]
+--! Auto-Dig: Пакетный метод (Не использует мышь)
+--! Speed & Planter: Стабильные циклы
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "BSS ULTIMATE v4.0",
-   LoadingTitle = "Janus Executor System",
+   Name = "BSS ULTIMATE v4.2",
+   LoadingTitle = "Janus System v4.2",
    LoadingSubtitle = "by Janus & Tesavek",
-   ConfigurationSaving = {
-      Enabled = false
-   },
+   ConfigurationSaving = { Enabled = false },
    KeySystem = false
 })
 
--- Переменные (Твои функции)
 local Flags = {
     Speed = false,
     SpeedVal = 1,
@@ -32,9 +29,7 @@ local MainTab = Window:CreateTab("Главная", 4483362458)
 MainTab:CreateToggle({
    Name = "CFrame Speed",
    CurrentValue = false,
-   Callback = function(Value)
-      Flags.Speed = Value
-   end,
+   Callback = function(Value) Flags.Speed = Value end,
 })
 
 MainTab:CreateSlider({
@@ -43,65 +38,62 @@ MainTab:CreateSlider({
    Increment = 0.5,
    Suffix = "x",
    CurrentValue = 1,
-   Callback = function(Value)
-      Flags.SpeedVal = Value
-   end,
+   Callback = function(Value) Flags.SpeedVal = Value end,
 })
 
--- 2. АВТОДИГ
+-- 2. АВТОДИГ (ПАКЕТНЫЙ - МЫШЬ СВОБОДНА)
 MainTab:CreateToggle({
-   Name = "Auto-Dig (Умный)",
+   Name = "Auto-Dig (Packet Method)",
    CurrentValue = false,
-   Callback = function(Value)
-      Flags.AutoDig = Value
-   end,
+   Callback = function(Value) Flags.AutoDig = Value end,
 })
 
 -- 3. ПЛАНТЕР
 MainTab:CreateToggle({
    Name = "Auto-Planter",
    CurrentValue = false,
-   Callback = function(Value)
-      Flags.AutoPlanter = Value
-   end,
+   Callback = function(Value) Flags.AutoPlanter = Value end,
 })
 
 MainTab:CreateKeybind({
    Name = "Клавиша для Плантера",
    CurrentKeybind = "One",
    HoldToInteract = false,
-   Flag = "PlanterKey",
-   Callback = function(Keybind)
-      CurrentBind = Keybind
-   end,
+   Callback = function(Key) CurrentBind = Key end,
 })
 
 -- ==========================================
--- ЛОГИКА (ПОТОКИ)
+-- ЛОГИКА (БЕЗ КОНФЛИКТОВ)
 -- ==========================================
 
--- Цикл Скорости
+-- Скорость
 game:GetService("RunService").Heartbeat:Connect(function()
     if Flags.Speed and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
         local hum = Player.Character:FindFirstChild("Humanoid")
         if hum and hum.MoveDirection.Magnitude > 0 then
-            Player.Character.HumanoidRootPart.CFrame = Player.Character.HumanoidRootPart.CFrame + (hum.MoveDirection * (Flags.SpeedVal * 0.5))
+            Player.Character.HumanoidRootPart.CFrame = Player.Character.HumanoidRootPart.CFrame + (hum.MoveDirection * (Flags.SpeedVal * 0.45))
         end
     end
 end)
 
--- Цикл Автодига (Использует Activate, чтобы не блокировать мышь)
+-- ПАКЕТНЫЙ АВТОДИГ (Самый топ)
 task.spawn(function()
     while true do
-        task.wait(0.1)
+        task.wait(0.05) -- Очень быстрый сбор
         if Flags.AutoDig then
             local tool = Player.Character and Player.Character:FindFirstChildOfClass("Tool")
-            if tool then tool:Activate() end
+            if tool and tool:FindFirstChild("ClickEvent") then
+                -- Отправляем сигнал активации напрямую, минуя клик мыши
+                tool.ClickEvent:FireServer(Player:GetMouse().Hit.Position)
+            elseif tool then
+                -- Если специфического ивента нет, используем безопасную активацию
+                tool:Activate()
+            end
         end
     end
 end)
 
--- Цикл Плантера
+-- Плантер
 task.spawn(function()
     while true do
         task.wait(1)
@@ -114,8 +106,7 @@ task.spawn(function()
 end)
 
 Rayfield:Notify({
-   Title = "Скрипт Загружен!",
-   Content = "Используй INSERT для скрытия меню.",
+   Title = "Система готова",
+   Content = "Автодиг больше не трогает твою мышь!",
    Duration = 5,
-   Image = 4483362458,
 })

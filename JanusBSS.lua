@@ -1,66 +1,90 @@
---! [ JanusBSS Core Script ]
--- Скрипт для Bee Swarm Simulator
--- Подключается через: loadstring(game:HttpGet("ССЫЛКА_НА_RAW_ФАЙЛ"))()
-
+--! [ JanusBSS GUI v3.0 - Cyber Style ]
 local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Player = game.Players.LocalPlayer
-local UserInputService = game:GetService("UserInputService")
 
--- 1. Создание GUI
+-- UI setup
 local ScreenGui = Instance.new("ScreenGui", CoreGui)
 ScreenGui.Name = "JanusBSS_UI"
 
 local Frame = Instance.new("Frame", ScreenGui)
-Frame.Size = UDim2.new(0, 240, 0, 200)
+Frame.Size = UDim2.new(0, 220, 0, 180)
 Frame.Position = UDim2.new(0.05, 0, 0.05, 0)
-Frame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+Frame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 Frame.BorderSizePixel = 0
 Frame.Draggable = true
 
+-- Скругление углов (UICorner)
+local Corner = Instance.new("UICorner", Frame)
+Corner.CornerRadius = UDim.new(0, 10)
+
+-- Заголовок с градиентом
 local Title = Instance.new("TextLabel", Frame)
-Title.Text = "JANUS BSS [ACTIVE]"
-Title.Size = UDim2.new(1, 0, 0, 30)
-Title.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-Title.TextColor3 = Color3.new(1, 1, 1)
+Title.Text = "JANUS BSS // V3"
+Title.Size = UDim2.new(1, 0, 0, 40)
+Title.BackgroundTransparency = 1
+Title.TextColor3 = Color3.fromRGB(0, 255, 255)
+Title.Font = Enum.Font.CodeBold
+Title.TextSize = 16
 
--- 2. Переменные состояния
-local SpeedEnabled = false
-local SpeedMultiplier = 0.8
+-- Ползунок скорости
+local SliderBack = Instance.new("Frame", Frame)
+SliderBack.Size = UDim2.new(0.8, 0, 0, 10)
+SliderBack.Position = UDim2.new(0.1, 0, 0.4, 0)
+SliderBack.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+Instance.new("UICorner", SliderBack).CornerRadius = UDim.new(1, 0)
 
--- 3. Кнопки управления
-local function CreateButton(text, pos, callback)
-    local btn = Instance.new("TextButton", Frame)
-    btn.Text = text
-    btn.Size = UDim2.new(0.9, 0, 0, 40)
-    btn.Position = pos
-    btn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-    btn.TextColor3 = Color3.new(1, 1, 1)
-    btn.MouseButton1Click:Connect(callback)
-    return btn
-end
+local SliderBar = Instance.new("Frame", SliderBack)
+SliderBar.Size = UDim2.new(0.25, 0, 1, 0)
+SliderBar.BackgroundColor3 = Color3.fromRGB(0, 255, 255)
+Instance.new("UICorner", SliderBar).CornerRadius = UDim.new(1, 0)
 
-CreateButton("Toggle Speed (CFrame)", UDim2.new(0.05, 0, 0.25, 0), function()
-    SpeedEnabled = not SpeedEnabled
-    print("Speed: " .. (SpeedEnabled and "ON" or "OFF"))
-end)
-
-CreateButton("Speed +0.1", UDim2.new(0.05, 0, 0.55, 0), function()
-    SpeedMultiplier = SpeedMultiplier + 0.1
-    print("Multiplier: " .. SpeedMultiplier)
-end)
-
--- 4. Игровой цикл для перемещения
-RunService.RenderStepped:Connect(function()
-    if SpeedEnabled and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
-        local HRP = Player.Character.HumanoidRootPart
-        local Humanoid = Player.Character.Humanoid
-        
-        -- Перемещение через CFrame (самый надежный метод для BSS)
-        if Humanoid.MoveDirection.Magnitude > 0 then
-            HRP.CFrame = HRP.CFrame + (Humanoid.MoveDirection * SpeedMultiplier)
+-- Логика ползунка
+local SpeedValue = 0.5
+SliderBack.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        local mouse = Player:GetMouse()
+        while UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) do
+            local rel = (mouse.X - SliderBack.AbsolutePosition.X) / SliderBack.AbsoluteSize.X
+            SpeedValue = math.clamp(rel * 2, 0, 2)
+            SliderBar.Size = UDim2.new(math.clamp(rel, 0, 1), 0, 1, 0)
+            RunService.RenderStepped:Wait()
         end
     end
 end)
 
-print("[Janus] BSS Core Loaded successfully.")
+-- Переключатель
+local ToggleBtn = Instance.new("TextButton", Frame)
+ToggleBtn.Text = "ENABLE SPEED"
+ToggleBtn.Size = UDim2.new(0.8, 0, 0, 40)
+ToggleBtn.Position = UDim2.new(0.1, 0, 0.6, 0)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 255, 255)
+ToggleBtn.TextColor3 = Color3.fromRGB(20, 20, 25)
+ToggleBtn.Font = Enum.Font.CodeBold
+Instance.new("UICorner", ToggleBtn).CornerRadius = UDim.new(0, 5)
+
+local SpeedEnabled = false
+ToggleBtn.MouseButton1Click:Connect(function()
+    SpeedEnabled = not SpeedEnabled
+    ToggleBtn.BackgroundColor3 = SpeedEnabled and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(0, 255, 255)
+    ToggleBtn.Text = SpeedEnabled and "SPEED ACTIVE" or "ENABLE SPEED"
+end)
+
+-- Движение
+RunService.RenderStepped:Connect(function()
+    if SpeedEnabled and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
+        local HRP = Player.Character.HumanoidRootPart
+        local Dir = Player.Character.Humanoid.MoveDirection
+        if Dir.Magnitude > 0 then
+            HRP.CFrame = HRP.CFrame + (Dir * SpeedValue)
+        end
+    end
+end)
+
+-- Клавиша скрытия (Insert)
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if not gpe and input.KeyCode == Enum.KeyCode.Insert then
+        Frame.Visible = not Frame.Visible
+    end
+end)

@@ -1,12 +1,12 @@
---![ Janus BSS Ultimate v4.9 - Internal Bypass ]
---! Метод: Прямой вызов функций игрового клиента.
---! Больше никакого VirtualInputManager для биндов.
+--![ Janus BSS Ultimate v5.0 ]
+--! Метод: Выбор слота через Dropdown (1-7)
+--! Гарантированное нажатие через принудительный индекс.
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "BSS ULTIMATE v4.9",
-   LoadingTitle = "Janus System [INTERNAL]",
+   Name = "BSS ULTIMATE v5.0",
+   LoadingTitle = "Janus System [SELECTOR]",
    LoadingSubtitle = "by Janus & Tesavek",
    ConfigurationSaving = { Enabled = false }
 })
@@ -18,11 +18,21 @@ local Flags = {
     AutoPlanter = false
 }
 
--- Теперь мы храним не клавишу, а НОМЕР слота (1, 2, 3... 6)
-local SlotNumber = 1
+-- Пременные для слота
+local SelectedSlot = "1"
+local SlotToKey = {
+    ["1"] = Enum.KeyCode.One,
+    ["2"] = Enum.KeyCode.Two,
+    ["3"] = Enum.KeyCode.Three,
+    ["4"] = Enum.KeyCode.Four,
+    ["5"] = Enum.KeyCode.Five,
+    ["6"] = Enum.KeyCode.Six,
+    ["7"] = Enum.KeyCode.Seven
+}
 
 local Player = game.Players.LocalPlayer
 local VIM = game:GetService("VirtualInputManager")
+local UIS = game:GetService("UserInputService")
 
 local MainTab = Window:CreateTab("Главная", 4483362458)
 
@@ -53,34 +63,31 @@ MainTab:CreateToggle({
    end,
 })
 
--- 3. ПЛАНТЕР (Через слот)
-MainTab:CreateToggle({
-   Name = "Auto-Planter",
-   CurrentValue = false,
-   Callback = function(Value) Flags.AutoPlanter = Value end,
-})
-
-MainTab:CreateKeybind({
-   Name = "Клавиша Плантера",
-   CurrentKeybind = "One",
-   HoldToInteract = false,
-   Callback = function(Key)
-      -- Конвертируем название клавиши в число для слота
-      local keyName = tostring(Key.Name)
-      local numMap = {["One"]=1, ["Two"]=2, ["Three"]=3, ["Four"]=4, ["Five"]=5, ["Six"]=6, ["Seven"]=7}
-      
-      SlotNumber = numMap[keyName] or 1
-      
+-- 3. ВЫБОР СЛОТА (Твой запрос)
+MainTab:CreateDropdown({
+   Name = "Выбери слот (1-7)",
+   Options = {"1","2","3","4","5","6","7"},
+   CurrentOption = {"1"},
+   MultipleOptions = false,
+   Callback = function(Option)
+      SelectedSlot = Option[1]
       Rayfield:Notify({
-         Title = "СЛОТ УСТАНОВЛЕН",
-         Content = "Используем слот №" .. tostring(SlotNumber),
+         Title = "Слот изменен",
+         Content = "Теперь спамим кнопку: " .. SelectedSlot,
          Duration = 2
       })
    end,
 })
 
+-- 4. ВКЛЮЧИТЕЛЬ ПЛАНТЕРА
+MainTab:CreateToggle({
+   Name = "Auto-Planter (Spam)",
+   CurrentValue = false,
+   Callback = function(Value) Flags.AutoPlanter = Value end,
+})
+
 -- ==========================================
--- ЛОГИКА (БЕЗ ЭМУЛЯЦИИ КЛАВИАТУРЫ)
+-- ЛОГИКА
 -- ==========================================
 
 -- Скорость
@@ -105,21 +112,29 @@ task.spawn(function()
     end
 end)
 
--- ПЛАНТЕР (ПРЯМОЙ ВЫЗОВ ИЗ МОДУЛЯ ИГРЫ)
+-- ПЛАНТЕР (ЖЕСТКИЙ СПАМ ВЫБРАННОГО СЛОТА)
 task.spawn(function()
-    local clientStat = require(game:GetService("ReplicatedStorage").Libs.ClientStat)
     while true do
-        task.wait(0.8)
-        if Flags.AutoPlanter then
-            -- Вызываем функцию использования предмета из слота напрямую
-            -- Это обходит все баги твоего экзекутора с клавиатурой
-            local item = clientStat.Get("Hotbar")[SlotNumber]
-            if item then
-                game:GetService("ReplicatedStorage").Events.PlayerAction:FireServer({
-                    ["Com"] = "UseItem",
-                    ["Item"] = item
-                })
-            end
+        task.wait(0.8) -- Твой кулдаун
+        if Flags.AutoPlanter and not UIS:GetFocusedTextBox() then
+            local KeyToPress = SlotToKey[SelectedSlot]
+            
+            -- Посылаем сигнал нажатия
+            VIM:SendKeyEvent(true, KeyToPress, false, game)
+            task.wait(0.05)
+            VIM:SendKeyEvent(false, KeyToPress, false, game)
+            
+            -- На случай если VIM тупит, дублируем пакет использования
+            pcall(function()
+                local hotbar = require(game:GetService("ReplicatedStorage").Libs.ClientStat).Get("Hotbar")
+                local item = hotbar[tonumber(SelectedSlot)]
+                if item then
+                    game:GetService("ReplicatedStorage").Events.PlayerAction:FireServer({
+                        ["Com"] = "UseItem",
+                        ["Item"] = item
+                    })
+                end
+            end)
         end
     end
 end)

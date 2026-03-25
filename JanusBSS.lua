@@ -3,10 +3,14 @@ local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local VIM = game:GetService("VirtualInputManager")
+local HttpService = game:GetService("HttpService")
 
 local Player = Players.LocalPlayer
 
 local DEFAULT_FIELD = "Sunflower Field"
+local DEFAULT_PATTERN = "Snake"
+local ROUTE_FILE = "JanusBSS_FieldRoutes.json"
+
 local FARM_INTERVAL = 0.08
 local TARGET_SCAN_INTERVAL = 0.22
 local MOVE_COMMAND_INTERVAL = 0.2
@@ -45,6 +49,12 @@ for name in pairs(Fields) do
 end
 table.sort(FieldNames)
 
+local PatternNames = {
+    "Snake",
+    "Loop",
+    "Custom Route"
+}
+
 local Flags = {
     AutoFarm = false,
     AutoDig = false,
@@ -55,6 +65,9 @@ local Flags = {
 
 local SelectedField = DEFAULT_FIELD
 local SelectedSlot = "1"
+local SelectedPattern = DEFAULT_PATTERN
+
+local RouteStore = { routes = {} }
 
 local currentToken = nil
 local currentMoveTarget = nil
@@ -66,6 +79,102 @@ local patrolPoints = nil
 local patrolIndex = 1
 local lastMoveCommandAt = 0
 local lastMoveTarget = nil
+local activePathSignature = nil
+local customRoamTick = 0
+
+local function serializeVector3(position)
+    return {
+        x = math.floor(position.X * 100) / 100,
+        y = math.floor(position.Y * 100) / 100,
+        z = math.floor(position.Z * 100) / 100
+    }
+end
+
+local function deserializeVector3(data)
+    if type(data) ~= "table" then
+        return nil
+    end
+
+    if type(data.x) ~= "number" or type(data.y) ~= "number" or type(data.z) ~= "number" then
+        return nil
+    end
+
+    return Vector3.new(data.x, data.y, data.z)
+end
+
+local function loadRouteStore()
+    if not readfile or not isfile then
+        return
+    end
+
+    if not isfile(ROUTE_FILE) then
+        return
+    end
+
+    local ok, content = pcall(readfile, ROUTE_FILE)
+    if not ok or type(content) ~= "string" or content == "" then
+        return
+    end
+
+    local decodedOk, decoded = pcall(function()
+        return HttpService:JSONDecode(content)
+    end)
+
+    if decodedOk and type(decoded) == "table" and type(decoded.routes) == "table" then
+        RouteStore = decoded
+    end
+end
+
+local function saveRouteStore()
+    if not writefile then
+        return
+    end
+
+    pcall(function()
+        writefile(ROUTE_FILE, HttpService:JSONEncode(RouteStore))
+    end)
+end
+
+local function ensureFieldRoute(fieldName)
+    RouteStore.routes[fieldName] = RouteStore.routes[fieldName] or { points = {} }
+    RouteStore.routes[fieldName].points = RouteStore.routes[fieldName].points or {}
+    return RouteStore.routes[fieldName]
+end
+
+local function getSavedRoutePoint(fieldName, index)
+    local route = ensureFieldRoute(fieldName)
+    return deserializeVector3(route.points[tostring(index)])
+end
+
+local function getSavedRoutePoints(fieldName)
+    local points = {}
+    for index = 1, 4 do
+        points[index] = getSavedRoutePoint(fieldName, index)
+    end
+    return points
+end
+
+local function hasCompleteCustomRoute(fieldName)
+    local points = getSavedRoutePoints(fieldName)
+    for index = 1, 4 do
+        if not points[index] then
+            return false
+        end
+    end
+    return true
+end
+
+local function saveCurrentFieldPoint(fieldName, index, position)
+    local route = ensureFieldRoute(fieldName)
+    route.points[tostring(index)] = serializeVector3(position)
+    saveRouteStore()
+end
+
+local function clearCurrentFieldRoute(fieldName)
+    local route = ensureFieldRoute(fieldName)
+    route.points = {}
+    saveRouteStore()
+end
 
 local function getCharacterParts()
     local character = Player.Character
@@ -134,6 +243,50 @@ local function buildSnakePoints(field)
     return points
 end
 
+local function buildLoopPoints(field)
+    local center = field.center
+    local halfX = math.max(field.size.X * 0.38, 12)
+    local halfZ = math.max(field.size.Z * 0.38, 12)
+
+    return {
+        center,
+        center + Vector3.new(-halfX, 0, -halfZ),
+        center + Vector3.new(halfX, 0, -halfZ),
+        center + Vector3.new(halfX, 0, halfZ),
+        center + Vector3.new(-halfX, 0, halfZ),
+        center + Vector3.new(-halfX, 0, -halfZ),
+        center
+    }
+end
+
+local function getPathSignature()
+    return SelectedField .. "::" .. SelectedPattern
+end
+
+local function invalidatePath()
+    patrolPoints = nil
+    patrolIndex = 1
+    activePathSignature = nil
+    customRoamTick = 0
+end
+
+local function getPatternPath(field)
+    local signature = getPathSignature()
+    if activePathSignature ~= signature or not patrolPoints then
+        activePathSignature = signature
+
+        if SelectedPattern == "Loop" then
+            patrolPoints = buildLoopPoints(field)
+        else
+            patrolPoints = buildSnakePoints(field)
+        end
+
+        patrolIndex = 1
+    end
+
+    return patrolPoints
+end
+
 local function teleportRoot(rootPart, position)
     pcall(function()
         rootPart.AssemblyLinearVelocity = Vector3.zero
@@ -163,19 +316,66 @@ local function clearFarmState()
     lastTargetScan = 0
     lastProgressAt = 0
     lastRootPosition = nil
-    patrolPoints = nil
-    patrolIndex = 1
     lastMoveCommandAt = 0
     lastMoveTarget = nil
+    invalidatePath()
+end
+
+local function getCustomRouteCentroid(points)
+    local sum = Vector3.zero
+    for index = 1, 4 do
+        sum = sum + points[index]
+    end
+    return sum / 4
+end
+
+local function getRandomPointInTriangle(a, b, c)
+    local r1 = math.sqrt(math.random())
+    local r2 = math.random()
+
+    return a * (1 - r1) + b * (r1 * (1 - r2)) + c * (r1 * r2)
+end
+
+local function getCustomRoamPoint(fieldName)
+    local points = getSavedRoutePoints(fieldName)
+    if not hasCompleteCustomRoute(fieldName) then
+        return nil
+    end
+
+    local centroid = getCustomRouteCentroid(points)
+    customRoamTick = customRoamTick + 1
+
+    if customRoamTick % 4 == 0 then
+        local cornerIndex = ((customRoamTick / 4 - 1) % 4) + 1
+        return points[cornerIndex]
+    end
+
+    local edgeIndex = ((customRoamTick - 1) % 4) + 1
+    local nextIndex = (edgeIndex % 4) + 1
+    return getRandomPointInTriangle(centroid, points[edgeIndex], points[nextIndex])
+end
+
+local function getNextPatrolPoint(field)
+    if SelectedPattern == "Custom Route" then
+        local customPoint = getCustomRoamPoint(SelectedField)
+        if customPoint then
+            return customPoint
+        end
+    end
+
+    local points = getPatternPath(field)
+    patrolIndex = (patrolIndex % #points) + 1
+    return points[patrolIndex]
 end
 
 local function resetFarmToField(rootPart, humanoid)
     local field = getFieldData()
-    patrolPoints = buildSnakePoints(field)
-    patrolIndex = 1
+    invalidatePath()
+
     currentToken = nil
-    currentMoveTarget = patrolPoints[1]
     currentMode = "patrol"
+    currentMoveTarget = field.center
+
     teleportRoot(rootPart, getFieldCenter(field))
     lastRootPosition = rootPart.Position
     lastProgressAt = time()
@@ -336,19 +536,10 @@ local function isStuck(now)
     return now - lastProgressAt >= STUCK_TIMEOUT
 end
 
-local function getNextPatrolPoint()
-    if not patrolPoints or #patrolPoints == 0 then
-        patrolPoints = buildSnakePoints(getFieldData())
-    end
-
-    patrolIndex = (patrolIndex % #patrolPoints) + 1
-    return patrolPoints[patrolIndex]
-end
-
-local function setPatrolTarget()
+local function setPatrolTarget(field)
     currentToken = nil
     currentMode = "patrol"
-    currentMoveTarget = getNextPatrolPoint()
+    currentMoveTarget = getNextPatrolPoint(field)
 end
 
 local function ensureFieldCenter(rootPart, humanoid, field)
@@ -360,10 +551,12 @@ local function ensureFieldCenter(rootPart, humanoid, field)
     return false
 end
 
+loadRouteStore()
+
 local Window = Rayfield:CreateWindow({
-    Name = "AI FARM v11.5",
+    Name = "AI FARM v11.6",
     LoadingTitle = "Smart Farm",
-    LoadingSubtitle = "Snake Field Farm",
+    LoadingSubtitle = "Pattern + Route Editor",
     ConfigurationSaving = { Enabled = false }
 })
 
@@ -424,6 +617,21 @@ MainTab:CreateDropdown({
 })
 
 MainTab:CreateDropdown({
+    Name = "Pattern Switcher",
+    Options = PatternNames,
+    CurrentOption = {DEFAULT_PATTERN},
+    Callback = function(opt)
+        SelectedPattern = typeof(opt) == "table" and (opt[1] or DEFAULT_PATTERN) or (opt or DEFAULT_PATTERN)
+        invalidatePath()
+
+        local _, humanoid, rootPart = getCharacterParts()
+        if Flags.AutoFarm and humanoid and rootPart then
+            resetFarmToField(rootPart, humanoid)
+        end
+    end
+})
+
+MainTab:CreateDropdown({
    Name = "Слот Плантера",
    Options = {"1","2","3","4","5","6","7"},
    CurrentOption = {"1"},
@@ -447,6 +655,58 @@ MainTab:CreateButton({
         if rootPart then
             teleportRoot(rootPart, getFieldCenter(getFieldData()))
         end
+    end
+})
+
+MainTab:CreateButton({
+    Name = "Save Pos 1 For Current Field",
+    Callback = function()
+        local _, _, rootPart = getCharacterParts()
+        if rootPart then
+            saveCurrentFieldPoint(SelectedField, 1, rootPart.Position)
+            invalidatePath()
+        end
+    end
+})
+
+MainTab:CreateButton({
+    Name = "Save Pos 2 For Current Field",
+    Callback = function()
+        local _, _, rootPart = getCharacterParts()
+        if rootPart then
+            saveCurrentFieldPoint(SelectedField, 2, rootPart.Position)
+            invalidatePath()
+        end
+    end
+})
+
+MainTab:CreateButton({
+    Name = "Save Pos 3 For Current Field",
+    Callback = function()
+        local _, _, rootPart = getCharacterParts()
+        if rootPart then
+            saveCurrentFieldPoint(SelectedField, 3, rootPart.Position)
+            invalidatePath()
+        end
+    end
+})
+
+MainTab:CreateButton({
+    Name = "Save Pos 4 For Current Field",
+    Callback = function()
+        local _, _, rootPart = getCharacterParts()
+        if rootPart then
+            saveCurrentFieldPoint(SelectedField, 4, rootPart.Position)
+            invalidatePath()
+        end
+    end
+})
+
+MainTab:CreateButton({
+    Name = "Clear Saved Route For Current Field",
+    Callback = function()
+        clearCurrentFieldRoute(SelectedField)
+        invalidatePath()
     end
 })
 
@@ -502,18 +762,19 @@ task.spawn(function()
             continue
         end
 
-        if not patrolPoints then
-            patrolPoints = buildSnakePoints(field)
-            patrolIndex = 1
-            currentMoveTarget = patrolPoints[1]
+        if not patrolPoints and SelectedPattern ~= "Custom Route" then
+            getPatternPath(field)
+            currentMoveTarget = field.center
             currentMode = "patrol"
             issueMoveTo(humanoid, rootPart, currentMoveTarget, true)
+        elseif SelectedPattern == "Custom Route" and not hasCompleteCustomRoute(SelectedField) then
+            getPatternPath(field)
         end
 
         if not isCurrentTokenValid(field) then
             currentToken = nil
             if currentMode == "token" then
-                setPatrolTarget()
+                setPatrolTarget(field)
             end
         end
 
@@ -526,34 +787,36 @@ task.spawn(function()
                 currentMoveTarget = bestToken.Position
                 currentMode = "token"
             elseif currentMode ~= "patrol" then
-                setPatrolTarget()
+                setPatrolTarget(field)
+            elseif not currentMoveTarget then
+                setPatrolTarget(field)
             end
         end
 
         if currentMode == "token" and currentMoveTarget then
             if horizontalDistance(rootPart.Position, currentMoveTarget) <= TOKEN_REACH_DISTANCE then
                 currentToken = nil
-                setPatrolTarget()
+                setPatrolTarget(field)
             elseif isStuck(now) then
                 currentToken = nil
-                setPatrolTarget()
+                setPatrolTarget(field)
                 lastProgressAt = now
             else
                 issueMoveTo(humanoid, rootPart, currentMoveTarget, false)
             end
         elseif currentMode == "patrol" and currentMoveTarget then
             if horizontalDistance(rootPart.Position, currentMoveTarget) <= PATROL_REACH_DISTANCE then
-                currentMoveTarget = getNextPatrolPoint()
+                currentMoveTarget = getNextPatrolPoint(field)
                 issueMoveTo(humanoid, rootPart, currentMoveTarget, true)
             elseif isStuck(now) then
-                currentMoveTarget = getNextPatrolPoint()
+                currentMoveTarget = getNextPatrolPoint(field)
                 lastProgressAt = now
                 issueMoveTo(humanoid, rootPart, currentMoveTarget, true)
             else
                 issueMoveTo(humanoid, rootPart, currentMoveTarget, false)
             end
         else
-            setPatrolTarget()
+            setPatrolTarget(field)
             issueMoveTo(humanoid, rootPart, currentMoveTarget, true)
         end
     end

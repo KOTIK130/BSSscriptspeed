@@ -1,212 +1,229 @@
---![ Janus BSS Ultimate v6.0 - The Token Vacuum ]
---! Метод: CFrame Targeting & Collectibles Scanner
---! Собирает жетоны, использует ползунок скорости, чистит всё поле.
+--![ BSS AI FARM v9 WALK MODE ]
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
+-- SERVICES
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local VIM = game:GetService("VirtualInputManager")
+
+local Player = Players.LocalPlayer
+
+-- UI
 local Window = Rayfield:CreateWindow({
-   Name = "BSS ULTIMATE v6.0",
-   LoadingTitle = "Janus True Farm",
-   LoadingSubtitle = "by Janus & Tesavek",
-   ConfigurationSaving = { Enabled = false }
+Name = "BSS AI FARM v9",
+LoadingTitle = "AI WALK FARM",
+LoadingSubtitle = "Human-like movement",
+ConfigurationSaving = { Enabled = false }
 })
 
+-- FLAGS
 local Flags = {
-    Speed = false,
-    SpeedVal = 1,
-    AutoDig = false,
-    AutoPlanter = false,
-    AutoFarm = false
+Speed = 16,
+AutoFarm = false,
+AutoDig = false,
+AutoPlanter = false
 }
 
-local SelectedSlot = "1"
 local SelectedField = "Sunflower Field"
-local SlotToKey = {["1"]=Enum.KeyCode.One, ["2"]=Enum.KeyCode.Two, ["3"]=Enum.KeyCode.Three, ["4"]=Enum.KeyCode.Four, ["5"]=Enum.KeyCode.Five, ["6"]=Enum.KeyCode.Six, ["7"]=Enum.KeyCode.Seven}
+local SelectedSlot = "1"
 
-local Player = game.Players.LocalPlayer
-local VIM = game:GetService("VirtualInputManager")
-local UIS = game:GetService("UserInputService")
-
--- Координаты полей
+-- FIELDS
 local Fields = {
-    ["Dandelion Field"] = Vector3.new(-30, 5, 225),
-    ["Sunflower Field"] = Vector3.new(-208, 5, -185),
-    ["Mushroom Field"] = Vector3.new(-221, 5, 116),
-    ["Blue Flower Field"] = Vector3.new(113, 5, 101),
-    ["Clover Field"] = Vector3.new(174, 34, 189),
-    ["Spider Field"] = Vector3.new(-38, 20, -5),
-    ["Strawberry Field"] = Vector3.new(-169, 20, -3),
-    ["Bamboo Field"] = Vector3.new(93, 20, -48),
-    ["Pineapple Patch"] = Vector3.new(262, 20, -42),
-    ["Stump Field"] = Vector3.new(421, 95, -174),
-    ["Cactus Field"] = Vector3.new(-194, 68, -107),
-    ["Pumpkin Patch"] = Vector3.new(-194, 68, -182),
-    ["Pine Tree Forest"] = Vector3.new(-318, 68, -150),
-    ["Rose Field"] = Vector3.new(-322, 20, 124),
-    ["Mountain Top Field"] = Vector3.new(76, 226, -122),
-    ["Coconut Field"] = Vector3.new(-255, 71, 464),
-    ["Pepper Patch"] = Vector3.new(477, 113, 22)
+["Sunflower Field"] = Vector3.new(-208,5,-185),
+["Dandelion Field"] = Vector3.new(-30,5,225),
+["Blue Flower Field"] = Vector3.new(113,5,101),
+["Strawberry Field"] = Vector3.new(-169,20,-3),
+["Coconut Field"] = Vector3.new(-255,71,464),
 }
 
 local FieldNames = {}
-for name, _ in pairs(Fields) do table.insert(FieldNames, name) end
-table.sort(FieldNames)
+for k in pairs(Fields) do table.insert(FieldNames, k) end
 
-local MainTab = Window:CreateTab("Главная", 4483362458)
-local FarmTab = Window:CreateTab("Автофарм", 4483362458)
+-- UI
+local Tab = Window:CreateTab("Main", 4483362458)
 
--- === ВКЛАДКА ГЛАВНАЯ ===
-MainTab:CreateToggle({
-   Name = "Ручной CFrame (Без фарма)",
-   CurrentValue = false,
-   Callback = function(Value) Flags.Speed = Value end,
+Tab:CreateToggle({
+Name = "AI AutoFarm",
+Callback = function(v) Flags.AutoFarm = v end
 })
 
-MainTab:CreateSlider({
-   Name = "Множитель скорости (Для всего)",
-   Range = {1, 10},
-   Increment = 0.5,
-   CurrentValue = 1,
-   Callback = function(Value) Flags.SpeedVal = Value end,
+Tab:CreateToggle({
+Name = "AutoDig",
+Callback = function(v) Flags.AutoDig = v end
 })
 
-MainTab:CreateToggle({
-   Name = "Auto-Dig (Лопата)",
-   CurrentValue = false,
-   Callback = function(Value) 
-      Flags.AutoDig = Value 
-      if not Value then VIM:SendMouseButtonEvent(0, 0, 0, false, game, 0) end
-   end,
+Tab:CreateToggle({
+Name = "AutoPlanter",
+Callback = function(v) Flags.AutoPlanter = v end
 })
 
-MainTab:CreateDropdown({
-   Name = "Слот Плантера",
-   Options = {"1","2","3","4","5","6","7"},
-   CurrentOption = {"1"},
-   Callback = function(Option) SelectedSlot = Option[1] end,
+Tab:CreateDropdown({
+Name = "Field",
+Options = FieldNames,
+CurrentOption = {"Sunflower Field"},
+Callback = function(opt) SelectedField = opt[1] end
 })
 
-MainTab:CreateToggle({
-   Name = "Auto-Planter",
-   CurrentValue = false,
-   Callback = function(Value) Flags.AutoPlanter = Value end,
-})
+-- TOKEN CACHE
+local lastScan = 0
+local cachedTokens = {}
 
--- === ВКЛАДКА АВТОФАРМ ===
-FarmTab:CreateDropdown({
-   Name = "Выберите поле",
-   Options = FieldNames,
-   CurrentOption = {"Sunflower Field"},
-   Callback = function(Option) SelectedField = Option[1] end,
-})
+local function GetTokens()
+if tick() - lastScan < 0.3 then return cachedTokens end
+lastScan = tick()
 
-FarmTab:CreateToggle({
-   Name = "TRUE AUTOFARM (Токены + Поле)",
-   CurrentValue = false,
-   Callback = function(Value) Flags.AutoFarm = Value end,
-})
+```
+local list = {}
+local col = workspace:FindFirstChild("Collectibles")
+if not col then return list end
 
--- ==========================================
--- ЛОГИКА АВТОФАРМА (СКОРОСТЬ + ТОКЕНЫ)
--- ==========================================
+local field = Fields[SelectedField]
 
-task.spawn(function()
-    while true do
-        task.wait() -- Работает максимально быстро
-        if Flags.AutoFarm and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
-            local hrp = Player.Character.HumanoidRootPart
-            local fieldCenter = Fields[SelectedField]
-            
-            -- 1. Возврат на поле, если улетел далеко
-            if (hrp.Position - fieldCenter).Magnitude > 60 then
-                hrp.CFrame = CFrame.new(fieldCenter + Vector3.new(0, 5, 0))
-                task.wait(0.5)
-            end
-
-            -- 2. ИЩЕМ ТОКЕНЫ (Жетоны и ресурсы)
-            local targetPos = nil
-            local collectibles = workspace:FindFirstChild("Collectibles")
-            
-            if collectibles then
-                for _, token in pairs(collectibles:GetChildren()) do
-                    if token:IsA("BasePart") then
-                        -- Проверяем, лежит ли токен на нашем поле (в радиусе 45 стадов)
-                        if (token.Position - fieldCenter).Magnitude <= 45 then
-                            targetPos = token.Position
-                            break -- Нашли цель, выходим из цикла поиска
-                        end
-                    end
-                end
-            end
-
-            -- 3. Если токенов нет — выбираем случайную точку для копки на поле
-            if not targetPos then
-                local rx = math.random(-35, 35)
-                local rz = math.random(-35, 35)
-                targetPos = fieldCenter + Vector3.new(rx, 0, rz)
-            end
-
-            -- 4. ДВИЖЕНИЕ С ИСПОЛЬЗОВАНИЕМ ТВОЕЙ СКОРОСТИ
-            -- Убираем ось Y, чтобы персонаж не летал и не зарывался в землю
-            targetPos = Vector3.new(targetPos.X, hrp.Position.Y, targetPos.Z) 
-            
-            local timeout = 0
-            -- Пока мы не достигли цели (расстояние > 3)
-            while Flags.AutoFarm and (hrp.Position - targetPos).Magnitude > 3 and timeout < 30 do
-                task.wait(0.01)
-                
-                -- Вычисляем вектор направления
-                local direction = (targetPos - hrp.Position).Unit
-                -- Применяем твой множитель скорости из слайдера!
-                local moveSpeed = (Flags.SpeedVal * 0.5) + 0.3 
-                
-                -- Двигаем персонажа
-                hrp.CFrame = hrp.CFrame + (direction * moveSpeed)
-                -- Поворачиваем лицом к цели
-                hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + direction)
-                
-                timeout = timeout + 1
-            end
+for _, t in ipairs(col:GetChildren()) do
+    if t:IsA("BasePart") then
+        if (t.Position - field).Magnitude < 60 then
+            table.insert(list, t)
         end
     end
+end
+
+cachedTokens = list
+return list
+```
+
+end
+
+-- FIELD TYPE
+local function GetFieldType()
+local name = string.lower(SelectedField)
+if name:find("blue") then return "BLUE" end
+if name:find("strawberry") or name:find("rose") then return "RED" end
+return "WHITE"
+end
+
+-- PRIORITY
+local function GetPriority(token)
+local d = token:FindFirstChild("FrontDecal")
+if not d then return 1 end
+
+```
+local tex = string.lower(d.Texture)
+
+if tex:find("coconut") or tex:find("combo") then return 150 end
+if tex:find("mythic") then return 90 end
+if tex:find("rare") then return 60 end
+
+return 1
+```
+
+end
+
+-- AI TARGET
+local function GetBestTarget(hrp)
+local tokens = GetTokens()
+if #tokens == 0 then return nil end
+
+```
+local best, bestScore = nil, -math.huge
+
+for _, t in ipairs(tokens) do
+    local dist = (t.Position - hrp.Position).Magnitude
+    if dist < 2 then continue end
+
+    local priority = GetPriority(t)
+
+    local density = 0
+    for _, other in ipairs(tokens) do
+        if (other.Position - t.Position).Magnitude < 12 then
+            density += 1
+        end
+    end
+
+    local score = (priority * 2) / dist + (density * 2)
+
+    if score > bestScore then
+        bestScore = score
+        best = t
+    end
+end
+
+return best
+```
+
+end
+
+-- WALK AI
+local currentTarget = nil
+local lastMove = 0
+
+RunService.Heartbeat:Connect(function()
+if not Flags.AutoFarm then return end
+
+```
+local char = Player.Character
+if not char then return end
+
+local hum = char:FindFirstChildOfClass("Humanoid")
+local hrp = char:FindFirstChild("HumanoidRootPart")
+
+if not hum or not hrp then return end
+
+hum.WalkSpeed = Flags.Speed
+
+-- обновление цели
+if tick() - lastMove > 0.25 then
+    local targetToken = GetBestTarget(hrp)
+
+    if targetToken then
+        currentTarget = targetToken.Position
+    else
+        -- fallback движение
+        local field = Fields[SelectedField]
+        currentTarget = field + Vector3.new(
+            math.random(-25,25),
+            0,
+            math.random(-25,25)
+        )
+    end
+
+    lastMove = tick()
+end
+
+if currentTarget then
+    hum:MoveTo(currentTarget)
+end
+```
+
 end)
 
--- Обычный спидхак для ручного бега (работает только если автофарм ВЫКЛЮЧЕН)
-game:GetService("RunService").Heartbeat:Connect(function()
-    if Flags.Speed and not Flags.AutoFarm and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
-        local hum = Player.Character:FindFirstChild("Humanoid")
-        if hum and hum.MoveDirection.Magnitude > 0 then
-            Player.Character.HumanoidRootPart.CFrame = Player.Character.HumanoidRootPart.CFrame + (hum.MoveDirection * (Flags.SpeedVal * 0.45))
-        end
-    end
+-- AUTODIG
+task.spawn(function()
+while task.wait(0.12) do
+if Flags.AutoDig then
+VIM:SendMouseButtonEvent(0,0,0,true,game,0)
+end
+end
 end)
 
--- Автодиг
+-- AUTOPLANTER
 task.spawn(function()
-    while true do
-        task.wait(0.2)
-        if Flags.AutoDig then
-            if Player.Character and Player.Character:FindFirstChildOfClass("Tool") then
-                VIM:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+while task.wait(1) do
+if Flags.AutoPlanter then
+pcall(function()
+local hotbar = require(game.ReplicatedStorage.Libs.ClientStat).Get("Hotbar")
+local item = hotbar[tonumber(SelectedSlot)]
+
+```
+            if item then
+                game.ReplicatedStorage.Events.PlayerAction:FireServer({
+                    Com = "UseItem",
+                    Item = item
+                })
             end
-        end
+        end)
     end
-end)
+end
+```
 
--- Плантер
-task.spawn(function()
-    while true do
-        task.wait(0.8)
-        if Flags.AutoPlanter and not UIS:GetFocusedTextBox() then
-            local KeyToPress = SlotToKey[SelectedSlot]
-            VIM:SendKeyEvent(true, KeyToPress, false, game)
-            task.wait(0.05)
-            VIM:SendKeyEvent(false, KeyToPress, false, game)
-            pcall(function()
-                local hotbar = require(game:GetService("ReplicatedStorage").Libs.ClientStat).Get("Hotbar")
-                local item = hotbar[tonumber(SelectedSlot)]
-                if item then game:GetService("ReplicatedStorage").Events.PlayerAction:FireServer({["Com"]="UseItem",["Item"]=item}) end
-            end)
-        end
-    end
 end)

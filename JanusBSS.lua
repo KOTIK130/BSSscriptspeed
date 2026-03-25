@@ -1,14 +1,14 @@
---![ Janus BSS Ultimate v6.1 - Token Vacuum ]
---! Улучшено: стабильность, скорость сбора токенов, анти-лаг
---! Добавлено: приоритет токенов + плавное движение
+--![ Janus BSS Ultimate v6.0 - The Token Vacuum ]
+--! Метод: CFrame Targeting & Collectibles Scanner
+--! Собирает жетоны, использует ползунок скорости, чистит всё поле.
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-    Name = "BSS ULTIMATE v6.1",
-    LoadingTitle = "Janus True Farm",
-    LoadingSubtitle = "by Janus & Tesavek",
-    ConfigurationSaving = { Enabled = false }
+   Name = "BSS ULTIMATE v6.0",
+   LoadingTitle = "Janus True Farm",
+   LoadingSubtitle = "by Janus & Tesavek",
+   ConfigurationSaving = { Enabled = false }
 })
 
 local Flags = {
@@ -21,18 +21,13 @@ local Flags = {
 
 local SelectedSlot = "1"
 local SelectedField = "Sunflower Field"
-
-local SlotToKey = {
-    ["1"]=Enum.KeyCode.One, ["2"]=Enum.KeyCode.Two, ["3"]=Enum.KeyCode.Three,
-    ["4"]=Enum.KeyCode.Four, ["5"]=Enum.KeyCode.Five, ["6"]=Enum.KeyCode.Six,
-    ["7"]=Enum.KeyCode.Seven
-}
+local SlotToKey = {["1"]=Enum.KeyCode.One, ["2"]=Enum.KeyCode.Two, ["3"]=Enum.KeyCode.Three, ["4"]=Enum.KeyCode.Four, ["5"]=Enum.KeyCode.Five, ["6"]=Enum.KeyCode.Six, ["7"]=Enum.KeyCode.Seven}
 
 local Player = game.Players.LocalPlayer
 local VIM = game:GetService("VirtualInputManager")
 local UIS = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
 
+-- Координаты полей
 local Fields = {
     ["Dandelion Field"] = Vector3.new(-30, 5, 225),
     ["Sunflower Field"] = Vector3.new(-208, 5, -185),
@@ -54,118 +49,164 @@ local Fields = {
 }
 
 local FieldNames = {}
-for name in pairs(Fields) do table.insert(FieldNames, name) end
+for name, _ in pairs(Fields) do table.insert(FieldNames, name) end
 table.sort(FieldNames)
 
--- Табы
 local MainTab = Window:CreateTab("Главная", 4483362458)
 local FarmTab = Window:CreateTab("Автофарм", 4483362458)
 
--- Главная
-MainTab:CreateToggle({Name = "Ручной CFrame Speed", CurrentValue = false, Callback = function(v) Flags.Speed = v end})
-MainTab:CreateSlider({Name = "Множитель скорости", Range = {1, 10}, Increment = 0.5, CurrentValue = 1, Callback = function(v) Flags.SpeedVal = v end})
-MainTab:CreateToggle({Name = "Auto-Dig", CurrentValue = false, Callback = function(v) Flags.AutoDig = v end})
-MainTab:CreateDropdown({Name = "Слот Плантера", Options = {"1","2","3","4","5","6","7"}, CurrentOption = {"1"}, Callback = function(opt) SelectedSlot = opt[1] end})
-MainTab:CreateToggle({Name = "Auto-Planter", CurrentValue = false, Callback = function(v) Flags.AutoPlanter = v end})
+-- === ВКЛАДКА ГЛАВНАЯ ===
+MainTab:CreateToggle({
+   Name = "Ручной CFrame (Без фарма)",
+   CurrentValue = false,
+   Callback = function(Value) Flags.Speed = Value end,
+})
 
--- Автофарм
-FarmTab:CreateDropdown({Name = "Поле", Options = FieldNames, CurrentOption = {"Sunflower Field"}, Callback = function(opt) SelectedField = opt[1] end})
-FarmTab:CreateToggle({Name = "TRUE AUTOFARM (Токены + Поле)", CurrentValue = false, Callback = function(v) Flags.AutoFarm = v end})
+MainTab:CreateSlider({
+   Name = "Множитель скорости (Для всего)",
+   Range = {1, 10},
+   Increment = 0.5,
+   CurrentValue = 1,
+   Callback = function(Value) Flags.SpeedVal = Value end,
+})
 
--- ===================== ЛОГИКА =====================
+MainTab:CreateToggle({
+   Name = "Auto-Dig (Лопата)",
+   CurrentValue = false,
+   Callback = function(Value) 
+      Flags.AutoDig = Value 
+      if not Value then VIM:SendMouseButtonEvent(0, 0, 0, false, game, 0) end
+   end,
+})
 
--- Главный цикл автопарма (токены + движение)
+MainTab:CreateDropdown({
+   Name = "Слот Плантера",
+   Options = {"1","2","3","4","5","6","7"},
+   CurrentOption = {"1"},
+   Callback = function(Option) SelectedSlot = Option[1] end,
+})
+
+MainTab:CreateToggle({
+   Name = "Auto-Planter",
+   CurrentValue = false,
+   Callback = function(Value) Flags.AutoPlanter = Value end,
+})
+
+-- === ВКЛАДКА АВТОФАРМ ===
+FarmTab:CreateDropdown({
+   Name = "Выберите поле",
+   Options = FieldNames,
+   CurrentOption = {"Sunflower Field"},
+   Callback = function(Option) SelectedField = Option[1] end,
+})
+
+FarmTab:CreateToggle({
+   Name = "TRUE AUTOFARM (Токены + Поле)",
+   CurrentValue = false,
+   Callback = function(Value) Flags.AutoFarm = Value end,
+})
+
+-- ==========================================
+-- ЛОГИКА АВТОФАРМА (СКОРОСТЬ + ТОКЕНЫ)
+-- ==========================================
+
 task.spawn(function()
     while true do
-        task.wait(0.03) -- оптимальный баланс скорость/нагрузка
-        
-        if not Flags.AutoFarm then continue end
-        local char = Player.Character
-        if not char then continue end
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if not hrp then continue end
+        task.wait() -- Работает максимально быстро
+        if Flags.AutoFarm and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
+            local hrp = Player.Character.HumanoidRootPart
+            local fieldCenter = Fields[SelectedField]
+            
+            -- 1. Возврат на поле, если улетел далеко
+            if (hrp.Position - fieldCenter).Magnitude > 60 then
+                hrp.CFrame = CFrame.new(fieldCenter + Vector3.new(0, 5, 0))
+                task.wait(0.5)
+            end
 
-        local center = Fields[SelectedField]
-        if not center then continue end
-
-        -- Возврат на поле
-        if (hrp.Position - center).Magnitude > 65 then
-            hrp.CFrame = CFrame.new(center.X, center.Y + 6, center.Z)
-            task.wait(0.4)
-            continue
-        end
-
-        -- Поиск токена
-        local targetPos = nil
-        local collectibles = workspace:FindFirstChild("Collectibles")
-        
-        if collectibles then
-            for _, token in ipairs(collectibles:GetChildren()) do
-                if token:IsA("BasePart") and (token.Position - center).Magnitude <= 48 then
-                    targetPos = token.Position
-                    break
+            -- 2. ИЩЕМ ТОКЕНЫ (Жетоны и ресурсы)
+            local targetPos = nil
+            local collectibles = workspace:FindFirstChild("Collectibles")
+            
+            if collectibles then
+                for _, token in pairs(collectibles:GetChildren()) do
+                    if token:IsA("BasePart") then
+                        -- Проверяем, лежит ли токен на нашем поле (в радиусе 45 стадов)
+                        if (token.Position - fieldCenter).Magnitude <= 45 then
+                            targetPos = token.Position
+                            break -- Нашли цель, выходим из цикла поиска
+                        end
+                    end
                 end
             end
-        end
 
-        -- Если токенов нет — случайная точка на поле
-        if not targetPos then
-            targetPos = center + Vector3.new(math.random(-34,34), 0, math.random(-34,34))
-        end
-
-        -- Движение к цели
-        targetPos = Vector3.new(targetPos.X, hrp.Position.Y, targetPos.Z)
-        
-        local dist = (hrp.Position - targetPos).Magnitude
-        if dist > 3 then
-            local direction = (targetPos - hrp.Position).Unit
-            local speed = Flags.SpeedVal * 0.55 + 0.35   -- лучшее значение для v6.1
-            
-            hrp.CFrame = hrp.CFrame + direction * speed
-            hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + direction)
-        end
-    end
-end)
-
--- Ручной CFrame Speed (только когда автофарм выключен)
-RunService.Heartbeat:Connect(function()
-    if not Flags.Speed or Flags.AutoFarm then return end
-    local hum = Player.Character and Player.Character:FindFirstChild("Humanoid")
-    local hrp = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
-    if hum and hrp and hum.MoveDirection.Magnitude > 0 then
-        hrp.CFrame += hum.MoveDirection * (Flags.SpeedVal * 0.45)
-    end
-end)
-
--- Auto Dig (более стабильный)
-task.spawn(function()
-    while true do
-        task.wait(0.12)
-        if Flags.AutoDig and Player.Character and Player.Character:FindFirstChildOfClass("Tool") then
-            VIM:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-            task.wait(0.06)
-            VIM:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-        end
-    end
-end)
-
--- Auto Planter
-task.spawn(function()
-    while true do
-        task.wait(0.75)
-        if not Flags.AutoPlanter or UIS:GetFocusedTextBox() then continue end
-
-        local key = SlotToKey[SelectedSlot]
-        VIM:SendKeyEvent(true, key, false, game)
-        task.wait(0.05)
-        VIM:SendKeyEvent(false, key, false, game)
-
-        pcall(function()
-            local hotbar = require(game.ReplicatedStorage.Libs.ClientStat).Get("Hotbar")
-            local item = hotbar[tonumber(SelectedSlot)]
-            if item then
-                game.ReplicatedStorage.Events.PlayerAction:FireServer({Com = "UseItem", Item = item})
+            -- 3. Если токенов нет — выбираем случайную точку для копки на поле
+            if not targetPos then
+                local rx = math.random(-35, 35)
+                local rz = math.random(-35, 35)
+                targetPos = fieldCenter + Vector3.new(rx, 0, rz)
             end
-        end)
+
+            -- 4. ДВИЖЕНИЕ С ИСПОЛЬЗОВАНИЕМ ТВОЕЙ СКОРОСТИ
+            -- Убираем ось Y, чтобы персонаж не летал и не зарывался в землю
+            targetPos = Vector3.new(targetPos.X, hrp.Position.Y, targetPos.Z) 
+            
+            local timeout = 0
+            -- Пока мы не достигли цели (расстояние > 3)
+            while Flags.AutoFarm and (hrp.Position - targetPos).Magnitude > 3 and timeout < 30 do
+                task.wait(0.01)
+                
+                -- Вычисляем вектор направления
+                local direction = (targetPos - hrp.Position).Unit
+                -- Применяем твой множитель скорости из слайдера!
+                local moveSpeed = (Flags.SpeedVal * 0.5) + 0.3 
+                
+                -- Двигаем персонажа
+                hrp.CFrame = hrp.CFrame + (direction * moveSpeed)
+                -- Поворачиваем лицом к цели
+                hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + direction)
+                
+                timeout = timeout + 1
+            end
+        end
+    end
+end)
+
+-- Обычный спидхак для ручного бега (работает только если автофарм ВЫКЛЮЧЕН)
+game:GetService("RunService").Heartbeat:Connect(function()
+    if Flags.Speed and not Flags.AutoFarm and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
+        local hum = Player.Character:FindFirstChild("Humanoid")
+        if hum and hum.MoveDirection.Magnitude > 0 then
+            Player.Character.HumanoidRootPart.CFrame = Player.Character.HumanoidRootPart.CFrame + (hum.MoveDirection * (Flags.SpeedVal * 0.45))
+        end
+    end
+end)
+
+-- Автодиг
+task.spawn(function()
+    while true do
+        task.wait(0.2)
+        if Flags.AutoDig then
+            if Player.Character and Player.Character:FindFirstChildOfClass("Tool") then
+                VIM:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+            end
+        end
+    end
+end)
+
+-- Плантер
+task.spawn(function()
+    while true do
+        task.wait(0.8)
+        if Flags.AutoPlanter and not UIS:GetFocusedTextBox() then
+            local KeyToPress = SlotToKey[SelectedSlot]
+            VIM:SendKeyEvent(true, KeyToPress, false, game)
+            task.wait(0.05)
+            VIM:SendKeyEvent(false, KeyToPress, false, game)
+            pcall(function()
+                local hotbar = require(game:GetService("ReplicatedStorage").Libs.ClientStat).Get("Hotbar")
+                local item = hotbar[tonumber(SelectedSlot)]
+                if item then game:GetService("ReplicatedStorage").Events.PlayerAction:FireServer({["Com"]="UseItem",["Item"]=item}) end
+            end)
+        end
     end
 end)

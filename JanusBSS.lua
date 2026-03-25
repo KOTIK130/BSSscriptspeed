@@ -735,8 +735,15 @@ RunService.RenderStepped:Connect(function(deltaTime)
         return
     end
 
+    if humanoid.FloorMaterial == Enum.Material.Air then
+        return
+    end
+
+    humanoid.AutoRotate = true
+
     local step = Flags.Speed * deltaTime * SPEED_MULTIPLIER
-    rootPart.CFrame = rootPart.CFrame + Vector3.new(direction.X * step, 0, direction.Z * step)
+    local nextPosition = rootPart.Position + Vector3.new(direction.X * step, 0, direction.Z * step)
+    rootPart.CFrame = CFrame.lookAt(nextPosition, nextPosition + direction)
 end)
 
 task.spawn(function()
@@ -752,6 +759,8 @@ task.spawn(function()
             clearFarmState()
             continue
         end
+
+        humanoid.AutoRotate = true
 
         local field = getFieldData()
         local now = time()

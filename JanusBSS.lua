@@ -1,13 +1,12 @@
---![ Janus BSS Ultimate v5.3 ]
---! Улучшено: более естественное и быстрое движение
---! Улучшено: стабильность и производительность
---! Добавлена защита от ошибок
+--![ Janus BSS Ultimate v6.1 - Token Vacuum ]
+--! Улучшено: стабильность, скорость сбора токенов, анти-лаг
+--! Добавлено: приоритет токенов + плавное движение
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-    Name = "BSS ULTIMATE v5.3",
-    LoadingTitle = "Janus Farm System",
+    Name = "BSS ULTIMATE v6.1",
+    LoadingTitle = "Janus True Farm",
     LoadingSubtitle = "by Janus & Tesavek",
     ConfigurationSaving = { Enabled = false }
 })
@@ -24,9 +23,9 @@ local SelectedSlot = "1"
 local SelectedField = "Sunflower Field"
 
 local SlotToKey = {
-    ["1"] = Enum.KeyCode.One, ["2"] = Enum.KeyCode.Two, ["3"] = Enum.KeyCode.Three,
-    ["4"] = Enum.KeyCode.Four, ["5"] = Enum.KeyCode.Five, ["6"] = Enum.KeyCode.Six,
-    ["7"] = Enum.KeyCode.Seven
+    ["1"]=Enum.KeyCode.One, ["2"]=Enum.KeyCode.Two, ["3"]=Enum.KeyCode.Three,
+    ["4"]=Enum.KeyCode.Four, ["5"]=Enum.KeyCode.Five, ["6"]=Enum.KeyCode.Six,
+    ["7"]=Enum.KeyCode.Seven
 }
 
 local Player = game.Players.LocalPlayer
@@ -34,7 +33,6 @@ local VIM = game:GetService("VirtualInputManager")
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
--- Поля
 local Fields = {
     ["Dandelion Field"] = Vector3.new(-30, 5, 225),
     ["Sunflower Field"] = Vector3.new(-208, 5, -185),
@@ -63,66 +61,89 @@ table.sort(FieldNames)
 local MainTab = Window:CreateTab("Главная", 4483362458)
 local FarmTab = Window:CreateTab("Автофарм", 4483362458)
 
--- Главная вкладка
-MainTab:CreateToggle({ Name = "CFrame Speed", CurrentValue = false, Callback = function(v) Flags.Speed = v end })
-MainTab:CreateSlider({ Name = "Множитель скорости", Range = {1, 10}, Increment = 0.5, CurrentValue = 1, Callback = function(v) Flags.SpeedVal = v end })
-MainTab:CreateToggle({ 
-    Name = "Auto-Dig", 
-    CurrentValue = false, 
-    Callback = function(v) 
-        Flags.AutoDig = v 
-        if not v then VIM:SendMouseButtonEvent(0,0,0,false,game,0) end 
-    end 
-})
-MainTab:CreateDropdown({ Name = "Слот Плантера", Options = {"1","2","3","4","5","6","7"}, CurrentOption = {"1"}, Callback = function(opt) SelectedSlot = opt[1] end })
-MainTab:CreateToggle({ Name = "Auto-Planter (Spam)", CurrentValue = false, Callback = function(v) Flags.AutoPlanter = v end })
+-- Главная
+MainTab:CreateToggle({Name = "Ручной CFrame Speed", CurrentValue = false, Callback = function(v) Flags.Speed = v end})
+MainTab:CreateSlider({Name = "Множитель скорости", Range = {1, 10}, Increment = 0.5, CurrentValue = 1, Callback = function(v) Flags.SpeedVal = v end})
+MainTab:CreateToggle({Name = "Auto-Dig", CurrentValue = false, Callback = function(v) Flags.AutoDig = v end})
+MainTab:CreateDropdown({Name = "Слот Плантера", Options = {"1","2","3","4","5","6","7"}, CurrentOption = {"1"}, Callback = function(opt) SelectedSlot = opt[1] end})
+MainTab:CreateToggle({Name = "Auto-Planter", CurrentValue = false, Callback = function(v) Flags.AutoPlanter = v end})
 
--- Автофарм вкладка
-FarmTab:CreateDropdown({ Name = "Поле", Options = FieldNames, CurrentOption = {"Sunflower Field"}, Callback = function(opt) SelectedField = opt[1] end })
-FarmTab:CreateToggle({ Name = "Автофарм (Бег по полю)", CurrentValue = false, Callback = function(v) Flags.AutoFarm = v end })
+-- Автофарм
+FarmTab:CreateDropdown({Name = "Поле", Options = FieldNames, CurrentOption = {"Sunflower Field"}, Callback = function(opt) SelectedField = opt[1] end})
+FarmTab:CreateToggle({Name = "TRUE AUTOFARM (Токены + Поле)", CurrentValue = false, Callback = function(v) Flags.AutoFarm = v end})
 
 -- ===================== ЛОГИКА =====================
 
--- Автофарм (естественное движение)
+-- Главный цикл автопарма (токены + движение)
 task.spawn(function()
     while true do
-        task.wait(0.15)
-        if not Flags.AutoFarm or not Player.Character then continue end
+        task.wait(0.03) -- оптимальный баланс скорость/нагрузка
         
-        local hrp = Player.Character:FindFirstChild("HumanoidRootPart")
-        local hum = Player.Character:FindFirstChild("Humanoid")
-        if not hrp or not hum then continue end
+        if not Flags.AutoFarm then continue end
+        local char = Player.Character
+        if not char then continue end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp then continue end
 
         local center = Fields[SelectedField]
         if not center then continue end
 
-        if (hrp.Position - center).Magnitude > 60 then
-            hrp.CFrame = CFrame.new(center.X, center.Y + 5, center.Z)
-            task.wait(0.6)
-        else
-            local offset = Vector3.new(math.random(-14,14), 0, math.random(-14,14))
-            hum:MoveTo(center + offset)
+        -- Возврат на поле
+        if (hrp.Position - center).Magnitude > 65 then
+            hrp.CFrame = CFrame.new(center.X, center.Y + 6, center.Z)
+            task.wait(0.4)
+            continue
+        end
+
+        -- Поиск токена
+        local targetPos = nil
+        local collectibles = workspace:FindFirstChild("Collectibles")
+        
+        if collectibles then
+            for _, token in ipairs(collectibles:GetChildren()) do
+                if token:IsA("BasePart") and (token.Position - center).Magnitude <= 48 then
+                    targetPos = token.Position
+                    break
+                end
+            end
+        end
+
+        -- Если токенов нет — случайная точка на поле
+        if not targetPos then
+            targetPos = center + Vector3.new(math.random(-34,34), 0, math.random(-34,34))
+        end
+
+        -- Движение к цели
+        targetPos = Vector3.new(targetPos.X, hrp.Position.Y, targetPos.Z)
+        
+        local dist = (hrp.Position - targetPos).Magnitude
+        if dist > 3 then
+            local direction = (targetPos - hrp.Position).Unit
+            local speed = Flags.SpeedVal * 0.55 + 0.35   -- лучшее значение для v6.1
+            
+            hrp.CFrame = hrp.CFrame + direction * speed
+            hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + direction)
         end
     end
 end)
 
--- CFrame Speed (работает только когда автофарм выключен)
+-- Ручной CFrame Speed (только когда автофарм выключен)
 RunService.Heartbeat:Connect(function()
     if not Flags.Speed or Flags.AutoFarm then return end
-    local hrp = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
     local hum = Player.Character and Player.Character:FindFirstChild("Humanoid")
-    if hrp and hum and hum.MoveDirection.Magnitude > 0 then
-        hrp.CFrame += hum.MoveDirection * Flags.SpeedVal * 0.45
+    local hrp = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
+    if hum and hrp and hum.MoveDirection.Magnitude > 0 then
+        hrp.CFrame += hum.MoveDirection * (Flags.SpeedVal * 0.45)
     end
 end)
 
--- Auto Dig
+-- Auto Dig (более стабильный)
 task.spawn(function()
     while true do
-        task.wait(0.15)
+        task.wait(0.12)
         if Flags.AutoDig and Player.Character and Player.Character:FindFirstChildOfClass("Tool") then
             VIM:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-            task.wait(0.05)
+            task.wait(0.06)
             VIM:SendMouseButtonEvent(0, 0, 0, false, game, 0)
         end
     end

@@ -735,10 +735,6 @@ RunService.RenderStepped:Connect(function(deltaTime)
         return
     end
 
-    if humanoid.FloorMaterial == Enum.Material.Air then
-        return
-    end
-
     humanoid.AutoRotate = true
 
     local step = Flags.Speed * deltaTime * SPEED_MULTIPLIER

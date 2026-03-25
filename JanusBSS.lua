@@ -8,34 +8,33 @@ local Player = Players.LocalPlayer
 
 local DEFAULT_FIELD = "Sunflower Field"
 local FARM_INTERVAL = 0.08
-local TARGET_SCAN_INTERVAL = 0.25
+local TARGET_SCAN_INTERVAL = 0.2
 local DIG_INTERVAL = 0.12
-local STUCK_TIMEOUT = 1.1
-local WANDER_INTERVAL = 0.5
+local STUCK_TIMEOUT = 1.25
 local TELEPORT_HEIGHT = 3
-local TARGET_REACH_DISTANCE = 6
-local TELEPORT_EPSILON = 4
+local PATROL_REACH_DISTANCE = 3
+local TOKEN_REACH_DISTANCE = 4
+local FIELD_REENTER_PADDING = 10
 local CLUSTER_RADIUS = 10
-local RANDOM_PADDING = 8
 
 local Fields = {
-    ["Sunflower Field"] = { center = Vector3.new(-208, 5, -185), size = Vector3.new(72, 6, 72) },
     ["Dandelion Field"] = { center = Vector3.new(-30, 5, 225), size = Vector3.new(72, 6, 72) },
-    ["Mushroom Field"] = { center = Vector3.new(-91, 5, 61), size = Vector3.new(65, 6, 65) },
+    ["Sunflower Field"] = { center = Vector3.new(-208, 5, -185), size = Vector3.new(72, 6, 72) },
+    ["Mushroom Field"] = { center = Vector3.new(-221, 5, 116), size = Vector3.new(72, 6, 72) },
     ["Blue Flower Field"] = { center = Vector3.new(113, 5, 101), size = Vector3.new(72, 6, 72) },
-    ["Clover Field"] = { center = Vector3.new(174, 32, 194), size = Vector3.new(72, 6, 72) },
-    ["Spider Field"] = { center = Vector3.new(-29, 20, -29), size = Vector3.new(72, 6, 72) },
-    ["Bamboo Field"] = { center = Vector3.new(317, 21, -91), size = Vector3.new(72, 6, 72) },
+    ["Clover Field"] = { center = Vector3.new(174, 34, 189), size = Vector3.new(72, 6, 72) },
+    ["Spider Field"] = { center = Vector3.new(-38, 20, -5), size = Vector3.new(72, 6, 72) },
     ["Strawberry Field"] = { center = Vector3.new(-169, 20, -3), size = Vector3.new(72, 6, 72) },
-    ["Pineapple Patch"] = { center = Vector3.new(254, 68, -201), size = Vector3.new(72, 6, 72) },
-    ["Stump Field"] = { center = Vector3.new(430, 5, -121), size = Vector3.new(72, 6, 72) },
-    ["Cactus Field"] = { center = Vector3.new(-326, 68, 1), size = Vector3.new(72, 6, 72) },
-    ["Pumpkin Patch"] = { center = Vector3.new(-187, 68, -186), size = Vector3.new(72, 6, 72) },
-    ["Pine Tree Forest"] = { center = Vector3.new(-330, 114, -381), size = Vector3.new(80, 6, 80) },
-    ["Rose Field"] = { center = Vector3.new(-260, 20, 182), size = Vector3.new(72, 6, 72) },
-    ["Mountain Top Field"] = { center = Vector3.new(83, 176, -163), size = Vector3.new(85, 6, 85) },
+    ["Bamboo Field"] = { center = Vector3.new(93, 20, -48), size = Vector3.new(72, 6, 72) },
+    ["Pineapple Patch"] = { center = Vector3.new(262, 20, -42), size = Vector3.new(72, 6, 72) },
+    ["Stump Field"] = { center = Vector3.new(421, 95, -174), size = Vector3.new(78, 6, 78) },
+    ["Cactus Field"] = { center = Vector3.new(-194, 68, -107), size = Vector3.new(72, 6, 72) },
+    ["Pumpkin Patch"] = { center = Vector3.new(-194, 68, -182), size = Vector3.new(72, 6, 72) },
+    ["Pine Tree Forest"] = { center = Vector3.new(-318, 68, -150), size = Vector3.new(80, 6, 80) },
+    ["Rose Field"] = { center = Vector3.new(-322, 20, 124), size = Vector3.new(72, 6, 72) },
+    ["Mountain Top Field"] = { center = Vector3.new(76, 226, -122), size = Vector3.new(85, 6, 85) },
     ["Coconut Field"] = { center = Vector3.new(-255, 71, 464), size = Vector3.new(95, 6, 95) },
-    ["Pepper Patch"] = { center = Vector3.new(-486, 126, 544), size = Vector3.new(80, 6, 80) }
+    ["Pepper Patch"] = { center = Vector3.new(477, 113, 22), size = Vector3.new(80, 6, 80) }
 }
 
 local FieldNames = {}
@@ -54,16 +53,15 @@ local Flags = {
 
 local SelectedField = DEFAULT_FIELD
 local SelectedSlot = "1"
-local currentTarget = nil
-local currentTargetPosition = nil
+
+local currentToken = nil
+local currentMoveTarget = nil
 local currentMode = "idle"
 local lastTargetScan = 0
 local lastProgressAt = 0
 local lastRootPosition = nil
-local lastTeleportPosition = nil
-local lastTeleportAt = 0
-local wanderIndex = 0
-local lastWanderAt = 0
+local patrolPoints = nil
+local patrolIndex = 1
 
 local function getCharacterParts()
     local character = Player.Character
@@ -84,12 +82,12 @@ local function getFieldData()
     return Fields[SelectedField] or Fields[DEFAULT_FIELD]
 end
 
-local function getFieldTransform(field)
+local function getFieldBounds(field)
     return CFrame.new(field.center), field.size
 end
 
 local function isInsideField(field, worldPosition, padding)
-    local fieldCFrame, fieldSize = getFieldTransform(field)
+    local fieldCFrame, fieldSize = getFieldBounds(field)
     local localPosition = fieldCFrame:PointToObjectSpace(worldPosition)
     local maxX = math.max((fieldSize.X * 0.5) - (padding or 0), 1)
     local maxZ = math.max((fieldSize.Z * 0.5) - (padding or 0), 1)
@@ -97,40 +95,26 @@ local function isInsideField(field, worldPosition, padding)
     return math.abs(localPosition.X) <= maxX and math.abs(localPosition.Z) <= maxZ
 end
 
-local function getRandomPointInField(field)
-    local fieldCFrame, fieldSize = getFieldTransform(field)
-    local halfX = math.max((fieldSize.X * 0.5) - RANDOM_PADDING, 2)
-    local halfZ = math.max((fieldSize.Z * 0.5) - RANDOM_PADDING, 2)
-
-    return (fieldCFrame * CFrame.new(
-        math.random(-halfX * 100, halfX * 100) / 100,
-        TELEPORT_HEIGHT,
-        math.random(-halfZ * 100, halfZ * 100) / 100
-    )).Position
+local function getFieldCenter(field)
+    return field.center + Vector3.new(0, TELEPORT_HEIGHT, 0)
 end
 
-local function getWanderPoints(field)
-    local center = field.center
-    local halfX = math.max((field.size.X * 0.5) - RANDOM_PADDING, 4)
-    local halfZ = math.max((field.size.Z * 0.5) - RANDOM_PADDING, 4)
+local function buildPatrolPoints(field)
+    local center = getFieldCenter(field)
+    local halfX = math.max(field.size.X * 0.32, 10)
+    local halfZ = math.max(field.size.Z * 0.32, 10)
 
     return {
-        center + Vector3.new(0, TELEPORT_HEIGHT, 0),
-        center + Vector3.new(-halfX, TELEPORT_HEIGHT, -halfZ),
-        center + Vector3.new(halfX, TELEPORT_HEIGHT, -halfZ),
-        center + Vector3.new(-halfX, TELEPORT_HEIGHT, halfZ),
-        center + Vector3.new(halfX, TELEPORT_HEIGHT, halfZ),
-        center + Vector3.new(0, TELEPORT_HEIGHT, -halfZ),
-        center + Vector3.new(0, TELEPORT_HEIGHT, halfZ),
-        center + Vector3.new(-halfX, TELEPORT_HEIGHT, 0),
-        center + Vector3.new(halfX, TELEPORT_HEIGHT, 0)
+        center,
+        center + Vector3.new(-halfX, 0, -halfZ),
+        center + Vector3.new(0, 0, -halfZ * 0.35),
+        center + Vector3.new(halfX, 0, -halfZ),
+        center,
+        center + Vector3.new(halfX, 0, halfZ),
+        center + Vector3.new(0, 0, halfZ * 0.35),
+        center + Vector3.new(-halfX, 0, halfZ),
+        center
     }
-end
-
-local function getNextWanderPoint(field)
-    local points = getWanderPoints(field)
-    wanderIndex = (wanderIndex % #points) + 1
-    return points[wanderIndex]
 end
 
 local function teleportRoot(rootPart, position)
@@ -141,16 +125,27 @@ local function teleportRoot(rootPart, position)
     end)
 end
 
-local function shouldTeleportTo(position, now)
-    if not lastTeleportPosition then
-        return true
-    end
+local function clearFarmState()
+    currentToken = nil
+    currentMoveTarget = nil
+    currentMode = "idle"
+    lastTargetScan = 0
+    lastProgressAt = 0
+    lastRootPosition = nil
+    patrolPoints = nil
+    patrolIndex = 1
+end
 
-    if (lastTeleportPosition - position).Magnitude >= TELEPORT_EPSILON then
-        return true
-    end
-
-    return now - lastTeleportAt >= 0.35
+local function resetFarmToField(rootPart)
+    local field = getFieldData()
+    patrolPoints = buildPatrolPoints(field)
+    patrolIndex = 1
+    currentToken = nil
+    currentMoveTarget = patrolPoints[1]
+    currentMode = "patrol"
+    teleportRoot(rootPart, getFieldCenter(field))
+    lastRootPosition = rootPart.Position
+    lastProgressAt = time()
 end
 
 local function getTokenTexture(token)
@@ -231,18 +226,18 @@ end
 
 local function getTokenPriority(token)
     if isCoconutOrComboToken(token) then
-        return 140
+        return 150
     end
 
     local texture = getTokenTexture(token)
     if string.find(texture, "mythic", 1, true) then
-        return 90
+        return 95
     end
     if string.find(texture, "rare", 1, true) then
-        return 50
+        return 55
     end
 
-    return 10
+    return 15
 end
 
 local function scoreToken(token, rootPosition, tokens)
@@ -255,7 +250,7 @@ local function scoreToken(token, rootPosition, tokens)
         end
     end
 
-    return getTokenPriority(token) - (distance * 0.7) + (cluster * 4)
+    return getTokenPriority(token) - (distance * 0.75) + (cluster * 4)
 end
 
 local function chooseBestToken(rootPart, field)
@@ -270,8 +265,8 @@ local function chooseBestToken(rootPart, field)
 
     for _, token in ipairs(tokens) do
         local score = scoreToken(token, rootPosition, tokens)
-        if token == currentTarget then
-            score = score + 12
+        if token == currentToken then
+            score = score + 10
         end
 
         if score > bestScore then
@@ -283,17 +278,11 @@ local function chooseBestToken(rootPart, field)
     return bestToken
 end
 
-local function isTargetValid(field)
-    return currentTarget
-        and currentTarget.Parent
-        and currentTarget:IsA("BasePart")
-        and isInsideField(field, currentTarget.Position, 0)
-end
-
-local function clearFarmTarget()
-    currentTarget = nil
-    currentTargetPosition = nil
-    currentMode = "idle"
+local function isCurrentTokenValid(field)
+    return currentToken
+        and currentToken.Parent
+        and currentToken:IsA("BasePart")
+        and isInsideField(field, currentToken.Position, 0)
 end
 
 local function updateProgress(rootPart, now)
@@ -303,7 +292,7 @@ local function updateProgress(rootPart, now)
         return
     end
 
-    if (rootPart.Position - lastRootPosition).Magnitude >= 1.5 then
+    if (rootPart.Position - lastRootPosition).Magnitude >= 1 then
         lastProgressAt = now
         lastRootPosition = rootPart.Position
     end
@@ -313,35 +302,55 @@ local function isStuck(now)
     return now - lastProgressAt >= STUCK_TIMEOUT
 end
 
-local function setFarmTarget(position, mode)
-    currentTargetPosition = position
-    currentMode = mode
+local function getNextPatrolPoint()
+    if not patrolPoints or #patrolPoints == 0 then
+        patrolPoints = buildPatrolPoints(getFieldData())
+    end
+
+    patrolIndex = (patrolIndex % #patrolPoints) + 1
+    return patrolPoints[patrolIndex]
+end
+
+local function setPatrolTarget()
+    currentToken = nil
+    currentMode = "patrol"
+    currentMoveTarget = getNextPatrolPoint()
+end
+
+local function ensureFieldCenter(rootPart, field)
+    if not isInsideField(field, rootPart.Position, FIELD_REENTER_PADDING) then
+        resetFarmToField(rootPart)
+        return true
+    end
+
+    return false
 end
 
 local Window = Rayfield:CreateWindow({
-    Name = "AI FARM v11.3",
+    Name = "AI FARM v11.4",
     LoadingTitle = "Smart Farm",
-    LoadingSubtitle = "AI TP Farm",
+    LoadingSubtitle = "Field Patrol Farm",
     ConfigurationSaving = { Enabled = false }
 })
 
-local Tab = Window:CreateTab("Main", 4483362458)
+local MainTab = Window:CreateTab("Main", 4483362458)
 
-Tab:CreateToggle({
+MainTab:CreateToggle({
     Name = "AI AutoFarm",
     CurrentValue = false,
     Callback = function(v)
         Flags.AutoFarm = v
+
+        local _, _, rootPart = getCharacterParts()
         if not v then
-            clearFarmTarget()
-        else
-            local field = getFieldData()
-            setFarmTarget(getRandomPointInField(field), "wander")
+            clearFarmState()
+        elseif rootPart then
+            resetFarmToField(rootPart)
         end
     end
 })
 
-Tab:CreateToggle({
+MainTab:CreateToggle({
     Name = "Auto Dig",
     CurrentValue = false,
     Callback = function(v)
@@ -349,7 +358,7 @@ Tab:CreateToggle({
     end
 })
 
-Tab:CreateToggle({
+MainTab:CreateToggle({
     Name = "Enable Speed",
     CurrentValue = false,
     Callback = function(v)
@@ -357,7 +366,7 @@ Tab:CreateToggle({
     end
 })
 
-Tab:CreateSlider({
+MainTab:CreateSlider({
    Name = "Walk Speed",
    Range = {10, 30},
    Increment = 1,
@@ -365,22 +374,22 @@ Tab:CreateSlider({
    Callback = function(v) Flags.Speed = v end
 })
 
-Tab:CreateDropdown({
+MainTab:CreateDropdown({
     Name = "Field",
     Options = FieldNames,
     CurrentOption = {DEFAULT_FIELD},
     Callback = function(opt)
         SelectedField = typeof(opt) == "table" and (opt[1] or DEFAULT_FIELD) or (opt or DEFAULT_FIELD)
-        wanderIndex = 0
-        clearFarmTarget()
-        if Flags.AutoFarm then
-            local field = getFieldData()
-            setFarmTarget(getRandomPointInField(field), "wander")
+
+        local _, _, rootPart = getCharacterParts()
+        clearFarmState()
+        if Flags.AutoFarm and rootPart then
+            resetFarmToField(rootPart)
         end
     end
 })
 
-Tab:CreateDropdown({
+MainTab:CreateDropdown({
    Name = "Слот Плантера",
    Options = {"1","2","3","4","5","6","7"},
    CurrentOption = {"1"},
@@ -389,7 +398,7 @@ Tab:CreateDropdown({
    end,
 })
 
-Tab:CreateToggle({
+MainTab:CreateToggle({
    Name = "Auto-Planter",
    CurrentValue = false,
    Callback = function(Value)
@@ -397,34 +406,50 @@ Tab:CreateToggle({
    end,
 })
 
-Tab:CreateButton({
+MainTab:CreateButton({
     Name = "TP To Selected Field",
     Callback = function()
-        local field = getFieldData()
         local _, _, rootPart = getCharacterParts()
         if rootPart then
-            teleportRoot(rootPart, getRandomPointInField(field))
+            teleportRoot(rootPart, getFieldCenter(getFieldData()))
         end
     end
 })
 
 RunService.RenderStepped:Connect(function(deltaTime)
-    if not Flags.EnableSpeed then
-        return
-    end
-
     local _, humanoid, rootPart = getCharacterParts()
     if not humanoid or not rootPart then
         return
     end
 
-    local moveDirection = humanoid.MoveDirection
-    if moveDirection.Magnitude <= 0 then
+    local direction = nil
+    local speedValue = Flags.Speed
+
+    if Flags.AutoFarm and currentMoveTarget then
+        local delta = currentMoveTarget - rootPart.Position
+        if delta.Magnitude > 0.5 then
+            direction = delta.Unit
+        end
+    elseif Flags.EnableSpeed and humanoid.MoveDirection.Magnitude > 0 then
+        direction = humanoid.MoveDirection.Unit
+    else
         return
     end
 
-    local offset = moveDirection.Unit * (Flags.Speed * deltaTime * 3)
-    rootPart.CFrame = rootPart.CFrame + offset
+    if not Flags.AutoFarm and not Flags.EnableSpeed then
+        return
+    end
+
+    if not direction then
+        return
+    end
+
+    if not Flags.EnableSpeed then
+        speedValue = 16
+    end
+
+    local step = speedValue * deltaTime * 3
+    rootPart.CFrame = rootPart.CFrame + (direction * step)
 end)
 
 task.spawn(function()
@@ -437,45 +462,64 @@ task.spawn(function()
 
         local _, _, rootPart = getCharacterParts()
         if not rootPart then
-            clearFarmTarget()
+            clearFarmState()
             continue
         end
 
         local field = getFieldData()
         local now = time()
+
         updateProgress(rootPart, now)
 
-        if not isTargetValid(field) then
-            currentTarget = nil
+        if ensureFieldCenter(rootPart, field) then
+            continue
         end
 
-        local rootDistance = currentTargetPosition and (rootPart.Position - currentTargetPosition).Magnitude or math.huge
+        if not patrolPoints then
+            patrolPoints = buildPatrolPoints(field)
+            patrolIndex = 1
+            currentMoveTarget = patrolPoints[1]
+            currentMode = "patrol"
+        end
 
-        if now - lastTargetScan >= TARGET_SCAN_INTERVAL or not currentTarget or rootDistance <= TARGET_REACH_DISTANCE or isStuck(now) then
+        if not isCurrentTokenValid(field) then
+            currentToken = nil
+            if currentMode == "token" then
+                setPatrolTarget()
+            end
+        end
+
+        if now - lastTargetScan >= TARGET_SCAN_INTERVAL then
             lastTargetScan = now
 
             local bestToken = chooseBestToken(rootPart, field)
             if bestToken then
-                currentTarget = bestToken
-                setFarmTarget(bestToken.Position + Vector3.new(0, TELEPORT_HEIGHT, 0), "token")
-            else
-                currentTarget = nil
-                if currentMode ~= "wander" or now - lastWanderAt >= WANDER_INTERVAL or isStuck(now) then
-                    setFarmTarget(getNextWanderPoint(field), "wander")
-                    lastWanderAt = now
-                end
+                currentToken = bestToken
+                currentMoveTarget = bestToken.Position + Vector3.new(0, TELEPORT_HEIGHT, 0)
+                currentMode = "token"
+            elseif currentMode ~= "patrol" then
+                setPatrolTarget()
             end
         end
 
-        if currentTargetPosition and shouldTeleportTo(currentTargetPosition, now) then
-            if currentMode == "token" and (rootPart.Position - currentTargetPosition).Magnitude <= TARGET_REACH_DISTANCE then
-                lastTeleportPosition = currentTargetPosition
-                lastTeleportAt = now
-            else
-                teleportRoot(rootPart, currentTargetPosition)
-                lastTeleportPosition = currentTargetPosition
-                lastTeleportAt = now
+        if currentMode == "token" and currentMoveTarget then
+            if (rootPart.Position - currentMoveTarget).Magnitude <= TOKEN_REACH_DISTANCE then
+                currentToken = nil
+                setPatrolTarget()
+            elseif isStuck(now) then
+                currentToken = nil
+                setPatrolTarget()
+                lastProgressAt = now
             end
+        elseif currentMode == "patrol" and currentMoveTarget then
+            if (rootPart.Position - currentMoveTarget).Magnitude <= PATROL_REACH_DISTANCE then
+                currentMoveTarget = getNextPatrolPoint()
+            elseif isStuck(now) then
+                currentMoveTarget = getNextPatrolPoint()
+                lastProgressAt = now
+            end
+        else
+            setPatrolTarget()
         end
     end
 end)
@@ -514,9 +558,5 @@ task.spawn(function()
 end)
 
 Player.CharacterRemoving:Connect(function()
-    clearFarmTarget()
-    lastRootPosition = nil
-    lastProgressAt = 0
-    lastTeleportPosition = nil
-    lastTeleportAt = 0
+    clearFarmState()
 end)

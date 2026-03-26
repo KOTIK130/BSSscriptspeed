@@ -17,7 +17,6 @@ local Flags = {
     AutoConvert = false,
     AutoItem    = false,
     ItemSlot    = 1,
-    ItemDelay   = 0.6,
     CFrameSpeed = 60,
     FieldRadius = 45,
     HivePos     = nil,
@@ -27,7 +26,6 @@ local Flags = {
 local isConverting = false
 
 -- ─── Remotes ─────────────────────────────────────
--- Поиск по всему ReplicatedStorage рекурсивно
 local function findR(name)
     local r = ReplicatedStorage:FindFirstChild(name, true)
     if not r then warn("[BSS] Remote not found: "..name) end
@@ -35,8 +33,8 @@ local function findR(name)
 end
 
 local R = {
-    Click   = findR("ClickEvent"),          -- FireServer()
-    Actives = findR("PlayerActivesCommand"), -- InvokeServer("Use", slot)
+    ToolClick = findR("toolClick"),            -- InvokeServer() — копание
+    Actives   = findR("PlayerActivesCommand"), -- InvokeServer("Use", slot)
 }
 
 -- ─── Персонаж ────────────────────────────────────
@@ -55,7 +53,6 @@ Player.CharacterAdded:Connect(function()
 end)
 
 -- ─── Pollen Parser ───────────────────────────────
--- Ищем TextLabel с форматом "N/N" (числа > 1000 = это пыльца)
 local _pollenCache = nil
 local function findPollenLabel()
     if _pollenCache and _pollenCache.Parent then return _pollenCache end
@@ -91,12 +88,14 @@ local function getPollenPct()
 end
 
 -- ─── Tween Teleport ──────────────────────────────
+-- Скорость = скорость персонажа × множитель из слайдера
 local curTween = nil
 local function tweenTo(pos)
     if not HRP then return end
     if curTween then curTween:Cancel() end
-    local dist = (HRP.Position - pos).Magnitude
-    local t = TweenInfo.new(math.max(dist/120, 0.05), Enum.EasingStyle.Linear)
+    local dist      = (HRP.Position - pos).Magnitude
+    local moveSpeed = (Hum and Hum.WalkSpeed or 16) * (Flags.CFrameSpeed / 16)
+    local t = TweenInfo.new(math.max(dist / moveSpeed, 0.05), Enum.EasingStyle.Linear)
     curTween = TweenService:Create(HRP, t, {CFrame = CFrame.new(pos)})
     curTween:Play()
     curTween.Completed:Wait()
@@ -112,9 +111,9 @@ local Win = Rayfield:CreateWindow({
     ConfigurationSaving = {Enabled = false},
 })
 
-local TFarm  = Win:CreateTab("⚙ Farm",      4483362458)
-local TItem  = Win:CreateTab("🎒 Items",    4483362458)
-local TPos   = Win:CreateTab("📍 Positions",4483362458)
+local TFarm  = Win:CreateTab("⚙ Farm",       4483362458)
+local TItem  = Win:CreateTab("🎒 Items",     4483362458)
+local TPos   = Win:CreateTab("📍 Positions", 4483362458)
 
 -- Status + Pollen display
 local ParaStatus = TFarm:CreateParagraph({Title="Status", Content="● Idle"})
@@ -149,10 +148,8 @@ TFarm:CreateSlider({Name="Field Radius", Range={10,120}, Increment=5, CurrentVal
 -- Items tab
 TItem:CreateSection("Auto Use Item")
 TItem:CreateToggle({Name="Auto Use Item", CurrentValue=false, Callback=function(v) Flags.AutoItem=v end})
-TItem:CreateSlider({Name="Item Slot  (1–8)", Range={1,8}, Increment=1, CurrentValue=1,
+TItem:CreateSlider({Name="Item Slot  (1–7)", Range={1,7}, Increment=1, CurrentValue=1,
     Callback=function(v) Flags.ItemSlot=v end})
-TItem:CreateSlider({Name="Delay × 0.1s  (6 = 0.6s)", Range={1,50}, Increment=1, CurrentValue=6,
-    Callback=function(v) Flags.ItemDelay=v/10 end})
 
 -- Positions tab
 TPos:CreateSection("⚠ Установи ДО фарма!")
@@ -196,29 +193,29 @@ end)
 --   ЛОГИКА
 -- ════════════════════════════════════════════════
 
--- 1. AUTO DIG  — 0.1s
+-- 1. AUTO DIG — toolClick:InvokeServer()
 task.spawn(function()
     while task.wait(0.1) do
-        if Flags.AutoDig and not isConverting and R.Click then
-            pcall(function() R.Click:FireServer() end)
+        if Flags.AutoDig and not isConverting and R.ToolClick then
+            pcall(function() R.ToolClick:InvokeServer() end)
         end
     end
 end)
 
--- 2. AUTO ITEM  — динамическая задержка
+-- 2. AUTO ITEM — слоты 1–7, скорость строго 0.7с
 task.spawn(function()
     while true do
-        task.wait(Flags.ItemDelay)
+        task.wait(0.7)
         if Flags.AutoItem and not isConverting and R.Actives then
             pcall(function() R.Actives:InvokeServer("Use", Flags.ItemSlot) end)
         end
     end
 end)
 
--- 3. AUTO CONVERT
+-- 3. AUTO CONVERT — работает БЕЗ AutoFarm
 task.spawn(function()
     while task.wait(0.4) do
-        if not Flags.AutoFarm or not Flags.AutoConvert then continue end
+        if not Flags.AutoConvert then continue end
         if not Flags.HivePos or not Flags.FieldPos then continue end
         if isConverting then continue end
         if getPollenPct() < 99 then continue end
@@ -229,22 +226,20 @@ task.spawn(function()
         -- Летим к улью
         tweenTo(Flags.HivePos)
 
-        -- В BSS конвертация происходит автоматически при подходе к улью
-        -- Дополнительно жмём E на случай если нужно ручное подтверждение
         task.wait(0.3)
         VIM:SendKeyEvent(true,  Enum.KeyCode.E, false, game)
         task.wait(0.15)
         VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
 
-        -- Ждём пока пыльца сконвертируется (таймаут 25с)
+        -- Ждём конвертацию (таймаут 25с)
         local waited = 0
         repeat
             task.wait(0.3)
             waited += 0.3
-        until getPollenPct() < 3 or not Flags.AutoFarm or waited > 25
+        until getPollenPct() < 3 or waited > 25
 
-        -- Летим обратно на поле
-        if Flags.AutoFarm then
+        -- Возвращаемся на поле ТОЛЬКО если AutoFarm включён
+        if Flags.AutoFarm and Flags.FieldPos then
             tweenTo(Flags.FieldPos)
         end
 
@@ -253,22 +248,24 @@ task.spawn(function()
     end
 end)
 
--- 4. ДВИЖЕНИЕ ПО ПОЛЮ  (Heartbeat)
+-- 4. ДВИЖЕНИЕ ПО ПОЛЮ — скорость = WalkSpeed персонажа × множитель слайдера
 RunService.Heartbeat:Connect(function(dt)
     if not Flags.AutoFarm or isConverting then return end
     if not HRP or not Hum or Hum.Health <= 0 then return end
     if not Flags.FieldPos then return end
 
-    -- Ищем ближайший токен в радиусе поля
-    local target    = nil
-    local bestDist  = math.huge
+    local target   = nil
+    local bestDist = math.huge
 
-    -- Collectibles может быть в workspace напрямую или вложен
     local colFolder = workspace:FindFirstChild("Collectibles")
                    or workspace:FindFirstChild("Tokens")
                    or workspace
 
     for _, obj in ipairs(colFolder:GetChildren()) do
+        -- Только токены способностей
+        local name = obj.Name
+        if not (name:find("Ability") or name == "AbilityToken") then continue end
+
         local pos
         if obj:IsA("BasePart") then
             pos = obj.Position
@@ -276,7 +273,6 @@ RunService.Heartbeat:Connect(function(dt)
             pos = obj.PrimaryPart.Position
         end
         if pos then
-            -- Токен должен быть в радиусе поля (по XZ)
             local flat = Vector3.new(pos.X - Flags.FieldPos.X, 0, pos.Z - Flags.FieldPos.Z)
             if flat.Magnitude <= Flags.FieldRadius then
                 local d = (Vector3.new(pos.X,0,pos.Z) - Vector3.new(HRP.Position.X,0,HRP.Position.Z)).Magnitude
@@ -288,7 +284,7 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 
-    -- Нет токенов → идём в центр
+    -- Нет токенов → идём в центр поля
     target = target or Flags.FieldPos
 
     local pPos    = HRP.Position
@@ -297,19 +293,20 @@ RunService.Heartbeat:Connect(function(dt)
     local flatDst = math.sqrt(dx*dx + dz*dz)
 
     if flatDst > 1.5 then
-        local inv  = 1 / flatDst
-        local step = math.min(Flags.CFrameSpeed * dt, flatDst)
-        local nx   = pPos.X + dx * inv * step
-        local nz   = pPos.Z + dz * inv * step
+        local inv = 1 / flatDst
+        -- Скорость CFrame масштабируется со скоростью персонажа
+        local moveSpeed = (Hum.WalkSpeed or 16) * (Flags.CFrameSpeed / 16)
+        local step      = math.min(moveSpeed * dt, flatDst)
+        local nx        = pPos.X + dx * inv * step
+        local nz        = pPos.Z + dz * inv * step
 
-        -- Y оставляем нетронутым → прыжки и парашют работают корректно
+        -- Y не трогаем — прыжки и полёт работают корректно
         HRP.CFrame = CFrame.lookAt(
             Vector3.new(nx, pPos.Y, nz),
             Vector3.new(target.X, pPos.Y, target.Z)
         )
 
-        -- Гасим только горизонтальную инерцию Roblox-физики
-        -- Вертикальную (Y) сохраняем — иначе прыжок/парашют сломается
+        -- Гасим только горизонтальную инерцию
         local vy = HRP.AssemblyLinearVelocity.Y
         HRP.AssemblyLinearVelocity = Vector3.new(0, vy, 0)
     end

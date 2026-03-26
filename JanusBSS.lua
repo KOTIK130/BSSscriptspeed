@@ -47,7 +47,7 @@ local ROAM_BOUNDARY_MARGIN  = 4
 -- Улей
 local HIVE_WAIT_MIN         = 7.0
 local HIVE_WAIT_MAX         = 9.0
-local HIVE_E_SPAM           = 3
+local HIVE_E_SPAM           = 1
 local POLLEN_CHECK_INTERVAL = 1.0
 
 -- Прочее

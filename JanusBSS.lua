@@ -324,28 +324,28 @@ local function speedBoost(dt)
 end
 
 --------------------------------------------------------------------------------
--- UI (Orion Library)
+-- UI (RayField)
 --------------------------------------------------------------------------------
 
-local OrionLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/magmaneon/Script/refs/heads/main/OrionLib.lua"))()
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
-local Window = OrionLib:MakeWindow({
+local Window = Rayfield:CreateWindow({
     Name = "JanusBSS Remote v2.0",
-    HidePremium = true,
-    SaveConfig = false,
-    IntroEnabled = false
+    LoadingTitle = "JanusBSS",
+    LoadingSubtitle = "by Janus",
+    ConfigurationSaving = {
+        Enabled = false
+    },
+    KeySystem = false
 })
 
 -- Farm Tab
-local FarmTab = Window:MakeTab({
-    Name = "Farm",
-    Icon = "rbxassetid://4483345998",
-    PremiumOnly = false
-})
+local FarmTab = Window:CreateTab("Farm", 4483362458)
 
-FarmTab:AddToggle({
+FarmTab:CreateToggle({
     Name = "Auto Farm (Snake)",
-    Default = false,
+    CurrentValue = false,
+    Flag = "AutoFarmToggle",
     Callback = function(val)
         Flags.AutoFarm = val
         patrolIndex = 1
@@ -353,35 +353,37 @@ FarmTab:AddToggle({
     end
 })
 
-FarmTab:AddToggle({
+FarmTab:CreateToggle({
     Name = "Auto Dig",
-    Default = false,
+    CurrentValue = false,
+    Flag = "AutoDigToggle",
     Callback = function(val)
         Flags.AutoDig = val
     end
 })
 
-FarmTab:AddToggle({
+FarmTab:CreateToggle({
     Name = "Auto Convert",
-    Default = false,
+    CurrentValue = false,
+    Flag = "AutoConvertToggle",
     Callback = function(val)
         Flags.AutoConvert = val
     end
 })
 
-FarmTab:AddButton({
+FarmTab:CreateButton({
     Name = "Set Convert Point",
     Callback = function()
         Flags.ConvertPoint = HumanoidRootPart.Position
-        OrionLib:MakeNotification({
-            Name = "Convert Point Set",
+        Rayfield:Notify({
+            Title = "Convert Point Set",
             Content = string.format("Saved: (%.0f, %.0f, %.0f)", Flags.ConvertPoint.X, Flags.ConvertPoint.Y, Flags.ConvertPoint.Z),
-            Time = 3
+            Duration = 3
         })
     end
 })
 
-FarmTab:AddButton({
+FarmTab:CreateButton({
     Name = "TP to Spider Field",
     Callback = function()
         teleportTo(SpiderFieldCenter)
@@ -389,68 +391,59 @@ FarmTab:AddButton({
 })
 
 -- Items Tab
-local ItemsTab = Window:MakeTab({
-    Name = "Items",
-    Icon = "rbxassetid://4483345998",
-    PremiumOnly = false
-})
+local ItemsTab = Window:CreateTab("Items", 4483362458)
 
-ItemsTab:AddToggle({
+ItemsTab:CreateToggle({
     Name = "Auto Use Item",
-    Default = false,
+    CurrentValue = false,
+    Flag = "AutoUseItemToggle",
     Callback = function(val)
         Flags.AutoUseItem = val
     end
 })
 
-ItemsTab:AddSlider({
+ItemsTab:CreateSlider({
     Name = "Item Slot",
-    Min = 1,
-    Max = 7,
-    Default = 1,
-    Color = Color3.fromRGB(255, 255, 255),
+    Range = {1, 7},
     Increment = 1,
+    CurrentValue = 1,
+    Flag = "ItemSlotSlider",
     Callback = function(val)
         Flags.ItemSlot = val
     end
 })
 
 -- Speed Tab
-local SpeedTab = Window:MakeTab({
-    Name = "Speed",
-    Icon = "rbxassetid://4483345998",
-    PremiumOnly = false
-})
+local SpeedTab = Window:CreateTab("Speed", 4483362458)
 
-SpeedTab:AddToggle({
+SpeedTab:CreateToggle({
     Name = "Speed Enabled",
-    Default = false,
+    CurrentValue = false,
+    Flag = "SpeedToggle",
     Callback = function(val)
         Flags.SpeedEnabled = val
         applySpeed()
     end
 })
 
-SpeedTab:AddSlider({
+SpeedTab:CreateSlider({
     Name = "Walk Speed",
-    Min = 16,
-    Max = 500,
-    Default = 100,
-    Color = Color3.fromRGB(255, 255, 255),
+    Range = {16, 500},
     Increment = 1,
+    CurrentValue = 100,
+    Flag = "WalkSpeedSlider",
     Callback = function(val)
         Flags.Speed = val
         applySpeed()
     end
 })
 
-SpeedTab:AddSlider({
+SpeedTab:CreateSlider({
     Name = "Jump Power",
-    Min = 50,
-    Max = 500,
-    Default = 100,
-    Color = Color3.fromRGB(255, 255, 255),
+    Range = {50, 500},
     Increment = 1,
+    CurrentValue = 100,
+    Flag = "JumpPowerSlider",
     Callback = function(val)
         Flags.JumpPower = val
         applySpeed()
@@ -498,8 +491,6 @@ end)
 --------------------------------------------------------------------------------
 -- INIT
 --------------------------------------------------------------------------------
-
-OrionLib:Init()
 
 print("JanusBSS Remote v2.0 Loaded")
 print("1. Auto Farm - snake по Spider Field")

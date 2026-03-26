@@ -1,5 +1,5 @@
 -- ============================================================
---   JanusBSS AutoFarm v18.0  |  Snake + AutoConvert + CFrame Speed
+--   JanusBSS AutoFarm v18.1  |  Snake + AutoConvert + CFrame Speed (FIXED)
 -- ============================================================
 
 -- ╔══════════════════════════════════════════════════════════╗
@@ -7,11 +7,10 @@
 -- ╚══════════════════════════════════════════════════════════╝
 
 local DEFAULT_FIELD   = "Spider Field"
-local DEFAULT_PATTERN = "Snake"
 local ROUTE_FILE      = "JanusBSS_FieldRoutes.json"
 
 -- Интервалы (секунды)
-local FARM_INTERVAL         = 0.05
+local FARM_INTERVAL         = 0.03
 local TOKEN_SCAN_INTERVAL   = 0.15
 local DIG_INTERVAL          = 0.10
 local PLANTER_WAIT          = 0.7
@@ -19,11 +18,11 @@ local ANTI_AFK_INTERVAL     = 120
 local CONVERT_WAIT          = 9.5
 
 -- CFrame движение
-local CFRAME_BASE_SPEED     = 28
-local CFRAME_STEP_MAX       = 5
+local CFRAME_BASE_SPEED     = 32
+local CFRAME_STEP_MAX       = 6
 
 -- Расстояния
-local PATROL_REACH_DIST     = 3
+local PATROL_REACH_DIST     = 4
 local TOKEN_REACH_DIST      = 3
 local FIELD_REENTER_PADDING = 5
 local CLUSTER_RADIUS        = 10
@@ -57,7 +56,6 @@ local Fields = {
     ["Spider Field"] = { center = Vector3.new(-38, 20, -5), size = Vector3.new(68, 10, 68) },
 }
 
-local FieldNames = { "Spider Field" }
 local SelectedField = DEFAULT_FIELD
 
 -- ============================================================
@@ -71,7 +69,7 @@ local Flags = {
     AutoPlanter = false,
     AutoConvert = false,
     AntiAFK     = true,
-    Speed       = 40,
+    Speed       = 48,
 }
 
 local SelectedSlot = "1"
@@ -151,15 +149,6 @@ local function insideField(field, pos, padding)
     return math.abs(off.X) <= hx and math.abs(off.Z) <= hz
 end
 
-local function clampToField(field, pos, margin)
-    local m  = margin or 0
-    local hx = field.size.X * 0.5 - m
-    local hz = field.size.Z * 0.5 - m
-    local ox = math.clamp(pos.X - field.center.X, -hx, hx)
-    local oz = math.clamp(pos.Z - field.center.Z, -hz, hz)
-    return Vector3.new(field.center.X + ox, pos.Y, field.center.Z + oz)
-end
-
 -- ============================================================
 --   Поиск земли (Raycast)
 -- ============================================================
@@ -186,29 +175,42 @@ end
 --   Телепорт & CFrame движение
 -- ============================================================
 
-local function teleportTo(root, pos)
+local function resetVelocity(root)
     pcall(function()
         root.AssemblyLinearVelocity  = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
-        root.CFrame = CFrame.new(pos)
     end)
 end
 
-local function cframeStep(root, dest, speed, dt)
+local function teleportTo(root, pos)
+    pcall(function()
+        resetVelocity(root)
+        root.CFrame = CFrame.new(pos)
+        resetVelocity(root)
+    end)
+end
+
+local function cframeMoveTo(root, dest, speed, dt)
     local pos  = root.Position
     local flat = Vector3.new(dest.X, pos.Y, dest.Z)
     local diff = flat - pos
     local dist = diff.Magnitude
 
-    if dist < 0.5 then return true end
+    if dist < 0.5 then 
+        resetVelocity(root)
+        return true 
+    end
 
     local step = math.min(speed * dt, dist, CFRAME_STEP_MAX)
     local dir  = diff.Unit
     local newPos = pos + dir * step
-    local lookAt = pos + dir
-    root.CFrame = CFrame.new(newPos, Vector3.new(lookAt.X, newPos.Y, lookAt.Z))
-    root.AssemblyLinearVelocity  = Vector3.zero
-    root.AssemblyAngularVelocity = Vector3.zero
+    
+    -- Сохраняем ориентацию, двигаем только позицию
+    local lookCF = CFrame.lookAt(newPos, Vector3.new(dest.X, newPos.Y, dest.Z))
+    root.CFrame = lookCF
+    
+    -- Обязательно сбрасываем velocity после CFrame движения
+    resetVelocity(root)
 
     return false
 end
@@ -372,27 +374,18 @@ local function tokenValid(field)
 end
 
 -- ============================================================
---   Snake-паттерн
+--   Snake-паттерн (FIXED)
 -- ============================================================
 
-local patrolPoints    = nil
-local patrolIndex     = 1
-local activeSignature = nil
-
-local function pathSig() return SelectedField .. "::Snake" end
-
-local function invalidatePath()
-    patrolPoints    = nil
-    patrolIndex     = 1
-    activeSignature = nil
-end
+local patrolPoints    = {}
+local patrolIndex     = 0
 
 local function buildSnake(field)
     local pts = {}
     local c   = field.center
     local hx  = field.size.X * 0.45
     local hz  = field.size.Z * 0.45
-    local rows = math.max(5, math.ceil(field.size.Z * 0.9 / 9))
+    local rows = math.max(6, math.ceil(field.size.Z * 0.9 / 8))
     local y   = c.Y
 
     for row = 0, rows - 1 do
@@ -401,28 +394,36 @@ local function buildSnake(field)
         local L = Vector3.new(c.X - hx, y, z)
         local R = Vector3.new(c.X + hx, y, z)
         if row % 2 == 0 then
-            pts[#pts+1] = L; pts[#pts+1] = R
+            pts[#pts+1] = L
+            pts[#pts+1] = R
         else
-            pts[#pts+1] = R; pts[#pts+1] = L
+            pts[#pts+1] = R
+            pts[#pts+1] = L
         end
     end
     return pts
 end
 
-local function getOrBuildPath(field)
-    local sig = pathSig()
-    if activeSignature ~= sig or not patrolPoints then
-        activeSignature = sig
-        patrolPoints = buildSnake(field)
-        patrolIndex = 1
-    end
-    return patrolPoints
+local function initSnakePath(field)
+    patrolPoints = buildSnake(field)
+    patrolIndex = 0
 end
 
-local function nextPatrolPoint(field)
-    local pts   = getOrBuildPath(field)
-    patrolIndex = (patrolIndex % #pts) + 1
-    return pts[patrolIndex]
+local function getNextPatrolPoint()
+    if #patrolPoints == 0 then return nil end
+    patrolIndex = patrolIndex + 1
+    if patrolIndex > #patrolPoints then
+        patrolIndex = 1
+    end
+    return patrolPoints[patrolIndex]
+end
+
+local function getCurrentPatrolPoint()
+    if #patrolPoints == 0 then return nil end
+    if patrolIndex < 1 or patrolIndex > #patrolPoints then
+        patrolIndex = 1
+    end
+    return patrolPoints[patrolIndex]
 end
 
 -- ============================================================
@@ -436,7 +437,6 @@ local lastProgressAt  = 0
 local lastRootPos     = nil
 local isConverting    = false
 local statusLabel     = nil
-local lastDt          = 0.05
 
 local function setStatus(txt)
     if statusLabel then pcall(function() statusLabel:Set(txt) end) end
@@ -450,7 +450,8 @@ local function clearFarmState()
     lastProgressAt = 0
     lastRootPos    = nil
     isConverting   = false
-    invalidatePath()
+    patrolPoints   = {}
+    patrolIndex    = 0
     setStatus("Stopped")
 end
 
@@ -480,13 +481,16 @@ end
 
 local function resetToField(root, hum)
     local field = getField()
-    invalidatePath()
+    
+    -- Инициализируем snake path
+    initSnakePath(field)
+    
     currentToken   = nil
     currentMode    = "patrol"
-    currentTarget  = field.center
+    currentTarget  = getNextPatrolPoint()
 
     teleportTo(root, fieldCenter(field))
-    task.wait(0.1)
+    task.wait(0.15)
     local ground = findGround(root.Position)
     teleportTo(root, ground)
 
@@ -545,10 +549,12 @@ local function doAutoConvert()
             teleportTo(root, ground)
             lastProgressAt = time()
             lastRootPos    = root.Position
-            invalidatePath()
+            
+            -- Reinit snake path after return
+            initSnakePath(getField())
             currentMode    = "patrol"
             currentToken   = nil
-            currentTarget  = getField().center
+            currentTarget  = getNextPatrolPoint()
         end
     end)
 
@@ -568,7 +574,7 @@ loadRouteStore()
 loadConvertPoint()
 
 -- ============================================================
---   ОСНОВНОЙ ЦИКЛ ФАРМА (Snake)
+--   ОСНОВНОЙ ЦИКЛ ФАРМА (Snake) - FIXED
 -- ============================================================
 
 local lastFarmTick = time()
@@ -584,9 +590,8 @@ task.spawn(function()
 
             local field = getField()
             local now   = time()
-            local dt    = math.min(now - lastFarmTick, 0.2)
+            local dt    = math.clamp(now - lastFarmTick, 0.01, 0.15)
             lastFarmTick = now
-            lastDt = dt
 
             updateProgress(root, now)
 
@@ -594,12 +599,14 @@ task.spawn(function()
 
             local moveSpeed = Flags.CFrameSpeed and Flags.Speed or CFRAME_BASE_SPEED
 
-            -- SNAKE PATTERN
-            if currentMode ~= "patrol" and currentMode ~= "token" then
-                currentMode   = "patrol"
-                currentTarget = nextPatrolPoint(field)
+            -- Инициализация если нужно
+            if #patrolPoints == 0 then
+                initSnakePath(field)
+                currentTarget = getNextPatrolPoint()
+                currentMode = "patrol"
             end
 
+            -- Сканирование токенов
             if now - lastTargetScan >= TOKEN_SCAN_INTERVAL then
                 lastTargetScan = now
                 local tokens = getTokensSorted(root, field)
@@ -608,37 +615,49 @@ task.spawn(function()
                     currentTarget = currentToken.Position
                     currentMode   = "token"
                 elseif currentMode == "token" then
+                    currentToken  = nil
                     currentMode   = "patrol"
-                    currentTarget = nextPatrolPoint(field)
+                    currentTarget = getCurrentPatrolPoint()
                 end
             end
 
+            -- Проверка валидности токена
             if currentMode == "token" and not tokenValid(field) then
                 currentToken  = nil
                 currentMode   = "patrol"
-                currentTarget = nextPatrolPoint(field)
+                currentTarget = getCurrentPatrolPoint()
             end
 
+            -- Движение к цели
             if currentTarget then
                 local dist = hDist(root.Position, currentTarget)
 
                 if currentMode == "token" and dist <= TOKEN_REACH_DIST then
+                    -- Достигли токена, переключаемся на патруль
                     currentToken  = nil
                     currentMode   = "patrol"
-                    currentTarget = nextPatrolPoint(field)
+                    currentTarget = getNextPatrolPoint()
                 elseif currentMode == "patrol" and dist <= PATROL_REACH_DIST then
-                    currentTarget = nextPatrolPoint(field)
+                    -- Достигли точки патруля, переходим к следующей
+                    currentTarget = getNextPatrolPoint()
                 elseif isStuck(now) then
+                    -- Застряли, пропускаем точку
                     lastProgressAt = now
                     lastRootPos    = root.Position
-                    if currentMode == "token" then currentToken = nil end
+                    if currentMode == "token" then 
+                        currentToken = nil 
+                    end
                     currentMode   = "patrol"
-                    currentTarget = nextPatrolPoint(field)
+                    currentTarget = getNextPatrolPoint()
                 end
 
+                -- Выполняем движение
                 if currentTarget then
-                    cframeStep(root, currentTarget, moveSpeed, dt)
+                    cframeMoveTo(root, currentTarget, moveSpeed, dt)
                 end
+            else
+                -- Нет цели, получаем следующую точку
+                currentTarget = getNextPatrolPoint()
             end
 
             -- Статус
@@ -648,8 +667,8 @@ task.spawn(function()
                 and (" | " .. tostring(polCur) .. "/" .. tostring(polMax))
                 or ""
             local modeIcon = currentMode == "token" and "T" or "P"
-            setStatus(("[%s] %s%s"):format(modeIcon, SelectedField, polStr))
-
+            local ptInfo = (" [%d/%d]"):format(patrolIndex, #patrolPoints)
+            setStatus(("[%s] %s%s%s"):format(modeIcon, SelectedField, ptInfo, polStr))
         end)
     end
 end)
@@ -731,43 +750,78 @@ task.spawn(function()
 end)
 
 -- ============================================================
---   CFrame Speed (ходьба, прыжок, полёт)
+--   CFrame Speed (FIXED - no sliding)
 -- ============================================================
 
-RunService.Heartbeat:Connect(function(dt)
-    if not Flags.CFrameSpeed then return end
+local speedConnection = nil
+local originalWalkSpeed = 16
+
+local function enableCFrameSpeed()
+    if speedConnection then return end
+    
+    local _, hum, _ = getCharParts()
+    if hum then
+        originalWalkSpeed = hum.WalkSpeed
+    end
+    
+    speedConnection = RunService.Heartbeat:Connect(function(dt)
+        if not Flags.CFrameSpeed then return end
+        
+        pcall(function()
+            local _, hum, root = getCharParts()
+            if not hum or not root then return end
+            
+            -- Не применяем скорость во время автофарма (он сам управляет движением)
+            if Flags.AutoFarm then return end
+            
+            local moveDir = hum.MoveDirection
+            if moveDir.Magnitude > 0.1 then
+                local speed = Flags.Speed
+                local boost = moveDir.Unit * speed * dt
+                
+                -- Чистое CFrame движение
+                root.CFrame = root.CFrame + Vector3.new(boost.X, 0, boost.Z)
+                
+                -- Сбрасываем горизонтальную скорость чтобы не было скольжения
+                local vel = root.AssemblyLinearVelocity
+                root.AssemblyLinearVelocity = Vector3.new(0, vel.Y, 0)
+            else
+                -- Когда не двигаемся - полный сброс горизонтальной скорости
+                local vel = root.AssemblyLinearVelocity
+                if math.abs(vel.X) > 0.1 or math.abs(vel.Z) > 0.1 then
+                    root.AssemblyLinearVelocity = Vector3.new(0, vel.Y, 0)
+                end
+            end
+        end)
+    end)
+end
+
+local function disableCFrameSpeed()
+    if speedConnection then
+        speedConnection:Disconnect()
+        speedConnection = nil
+    end
+    
     pcall(function()
         local _, hum, root = getCharParts()
-        if not hum or not root then return end
-        
-        local speed = Flags.Speed
-        hum.WalkSpeed = speed
-        hum.JumpPower = 50
-        
-        local vel = root.AssemblyLinearVelocity
-        local hVel = Vector3.new(vel.X, 0, vel.Z)
-        
-        if hVel.Magnitude > 0.1 then
-            local dir = hVel.Unit
-            local targetVel = dir * speed
-            root.AssemblyLinearVelocity = Vector3.new(targetVel.X, vel.Y, targetVel.Z)
+        if hum then
+            hum.WalkSpeed = originalWalkSpeed
         end
-        
-        -- CFrame boost for all states (walking, jumping, flying)
-        local moveDir = hum.MoveDirection
-        if moveDir.Magnitude > 0 then
-            local boost = moveDir * speed * dt
-            root.CFrame = root.CFrame + Vector3.new(boost.X, 0, boost.Z)
+        if root then
+            resetVelocity(root)
         end
     end)
-end)
+end
+
+-- Start speed system
+enableCFrameSpeed()
 
 -- ============================================================
 --   UI (Rayfield)
 -- ============================================================
 
 local Window = Rayfield:CreateWindow({
-    Name              = "JanusBSS v18.0",
+    Name              = "JanusBSS v18.1",
     LoadingTitle      = "JanusBSS",
     LoadingSubtitle   = "Snake + AutoConvert",
     ConfigurationSaving = { Enabled = false },
@@ -779,7 +833,7 @@ local MainTab = Window:CreateTab("Farm", 4483362458)
 statusLabel = MainTab:CreateLabel("Stopped")
 
 MainTab:CreateToggle({
-    Name = "AI AutoFarm (Snake)", CurrentValue = false,
+    Name = "AutoFarm (Snake)", CurrentValue = false,
     Callback = function(v)
         Flags.AutoFarm = v
         if not v then
@@ -798,11 +852,17 @@ MainTab:CreateToggle({
 
 MainTab:CreateToggle({
     Name = "CFrame Speed", CurrentValue = false,
-    Callback = function(v) Flags.CFrameSpeed = v end,
+    Callback = function(v) 
+        Flags.CFrameSpeed = v
+        if not v then
+            disableCFrameSpeed()
+            enableCFrameSpeed() -- Reconnect but flag is off
+        end
+    end,
 })
 
 MainTab:CreateSlider({
-    Name = "Speed", Range = {16, 150}, Increment = 1, CurrentValue = 40,
+    Name = "Speed", Range = {16, 150}, Increment = 1, CurrentValue = 48,
     Callback = function(v) Flags.Speed = v end,
 })
 
@@ -888,6 +948,10 @@ Player.CharacterAdded:Connect(function(char)
     local root = char:WaitForChild("HumanoidRootPart", 10)
     if not hum or not root then return end
     task.wait(1)
+    
+    -- Reconnect speed system
+    enableCFrameSpeed()
+    
     if Flags.AutoFarm then
         resetToField(root, hum)
     end
@@ -898,7 +962,7 @@ end)
 -- ============================================================
 
 Rayfield:Notify({
-    Title    = "JanusBSS v18.0",
+    Title    = "JanusBSS v18.1",
     Content  = "Snake + AutoConvert loaded!",
     Duration = 4,
 })

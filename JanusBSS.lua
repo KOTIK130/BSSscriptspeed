@@ -119,7 +119,7 @@ local function getTokenFolders()
     if _tokenFolders then return _tokenFolders end
     _tokenFolders = {}
     -- Известные имена папок токенов в BSS
-    local names = {"Collectibles", "Tokens", "AbilityTokens", "FieldTokens", "PlayerTokens", "FlowerZones"}
+    local names = {"Collectibles", "Tokens", "AbilityTokens", "FieldTokens", "PlayerTokens", "FlowerZones", "tokenEvent"}
     for _, name in ipairs(names) do
         local f = workspace:FindFirstChild(name)
         if f then table.insert(_tokenFolders, f) end

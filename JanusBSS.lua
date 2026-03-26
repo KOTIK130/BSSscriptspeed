@@ -1,23 +1,22 @@
 -- ============================================================
---   JanusBSS AutoFarm v17.1  |  CFrame AI + Token Magnet
+--   JanusBSS AutoFarm v18.0  |  Snake + AutoConvert + CFrame Speed
 -- ============================================================
 
 -- ╔══════════════════════════════════════════════════════════╗
 -- ║                    КОНФИГИ (CONFIG)                      ║
 -- ╚══════════════════════════════════════════════════════════╝
 
-local DEFAULT_FIELD   = "Sunflower Field"
-local DEFAULT_PATTERN = "Snake"   -- "Snake" | "Spiral" | "Roam"
+local DEFAULT_FIELD   = "Spider Field"
+local DEFAULT_PATTERN = "Snake"
 local ROUTE_FILE      = "JanusBSS_FieldRoutes.json"
 
 -- Интервалы (секунды)
 local FARM_INTERVAL         = 0.05
 local TOKEN_SCAN_INTERVAL   = 0.15
-local TOKEN_MAGNET_INTERVAL = 0.08
 local DIG_INTERVAL          = 0.10
-local PLANTER_MIN_WAIT      = 0.6
-local PLANTER_MAX_WAIT      = 1.0
+local PLANTER_WAIT          = 0.7
 local ANTI_AFK_INTERVAL     = 120
+local CONVERT_WAIT          = 9.5
 
 -- CFrame движение
 local CFRAME_BASE_SPEED     = 28
@@ -26,7 +25,6 @@ local CFRAME_STEP_MAX       = 5
 -- Расстояния
 local PATROL_REACH_DIST     = 3
 local TOKEN_REACH_DIST      = 3
-local TOKEN_MAGNET_RADIUS   = 14
 local FIELD_REENTER_PADDING = 5
 local CLUSTER_RADIUS        = 10
 local CLUSTER_MAX_CHECK     = 15
@@ -35,25 +33,9 @@ local CLUSTER_MAX_CHECK     = 15
 local STUCK_TIMEOUT         = 2.5
 local STUCK_MIN_MOVE        = 0.5
 
--- Roam AI
-local ROAM_CELL_SIZE        = 10
-local ROAM_HEAT_DECAY       = 0.80
-local ROAM_HEAT_REGEN       = 0.03
-local ROAM_HEAT_REGEN_INT   = 5
-local ROAM_WANDER_BIAS      = 0.30
-local ROAM_RESCAN_DIST      = 3.0
-local ROAM_BOUNDARY_MARGIN  = 4
-
--- Улей
-local HIVE_WAIT_MIN         = 7.0
-local HIVE_WAIT_MAX         = 9.0
-local HIVE_E_SPAM           = 1
-local POLLEN_CHECK_INTERVAL = 1.0
-
 -- Прочее
 local TELEPORT_HEIGHT       = 8
 local GROUND_RAY_DIST       = 60
-local MAX_LOG_LINES         = 80
 
 -- ============================================================
 --   Сервисы
@@ -68,43 +50,15 @@ local HttpService = game:GetService("HttpService")
 local Player = Players.LocalPlayer
 
 -- ============================================================
---   Поля BSS (ИСПРАВЛЕННЫЕ координаты)
+--   Поле Spider Field
 -- ============================================================
--- center.Y = уровень земли. TELEPORT_HEIGHT добавляется при ТП,
--- затем рейкаст вниз находит реальную поверхность.
 
 local Fields = {
-    -- Starter Zone (Y ~ 3)
-    ["Dandelion Field"]    = { center = Vector3.new( -43,   3,  220), size = Vector3.new(68, 10, 68) },
-    ["Sunflower Field"]    = { center = Vector3.new(-209,   3, -186), size = Vector3.new(68, 10, 68) },
-    ["Mushroom Field"]     = { center = Vector3.new(-220,   3,  116), size = Vector3.new(68, 10, 68) },
-    ["Blue Flower Field"]  = { center = Vector3.new( 115,   3,  100), size = Vector3.new(68, 10, 68) },
-
-    -- 5 Bee Zone (Y ~ 20)
-    ["Clover Field"]       = { center = Vector3.new( 175,  34,  190), size = Vector3.new(68, 10, 68) },
-    ["Spider Field"]       = { center = Vector3.new( -38,  20,   -5), size = Vector3.new(68, 10, 68) },
-    ["Strawberry Field"]   = { center = Vector3.new(-170,  20,   -3), size = Vector3.new(68, 10, 68) },
-    ["Bamboo Field"]       = { center = Vector3.new(  93,  20,  -48), size = Vector3.new(68, 10, 68) },
-    ["Pineapple Patch"]    = { center = Vector3.new( 262,  20,  -42), size = Vector3.new(68, 10, 68) },
-    ["Rose Field"]         = { center = Vector3.new(-322,  20,  124), size = Vector3.new(68, 10, 68) },
-
-    -- 15 Bee Zone (Y ~ 68)
-    ["Cactus Field"]       = { center = Vector3.new(-194,  68, -107), size = Vector3.new(68, 10, 68) },
-    ["Pumpkin Patch"]      = { center = Vector3.new(-194,  68, -182), size = Vector3.new(68, 10, 68) },
-    ["Pine Tree Forest"]   = { center = Vector3.new(-318,  68, -150), size = Vector3.new(78, 10, 78) },
-    ["Stump Field"]        = { center = Vector3.new( 421,  96, -174), size = Vector3.new(76, 10, 76) },
-
-    -- 25+ Bee Zone
-    ["Mountain Top Field"] = { center = Vector3.new(  76, 227, -122), size = Vector3.new(82, 10, 82) },
-    ["Coconut Field"]      = { center = Vector3.new(-255,  71,  464), size = Vector3.new(92, 10, 92) },
-    ["Pepper Patch"]       = { center = Vector3.new( 477, 114,   22), size = Vector3.new(78, 10, 78) },
+    ["Spider Field"] = { center = Vector3.new(-38, 20, -5), size = Vector3.new(68, 10, 68) },
 }
 
-local FieldNames = {}
-for name in pairs(Fields) do FieldNames[#FieldNames + 1] = name end
-table.sort(FieldNames)
-
-local PatternNames = { "Snake", "Spiral", "Roam" }
+local FieldNames = { "Spider Field" }
+local SelectedField = DEFAULT_FIELD
 
 -- ============================================================
 --   Флаги & Состояние
@@ -115,29 +69,19 @@ local Flags = {
     AutoDig     = false,
     CFrameSpeed = false,
     AutoPlanter = false,
-    AutoHive    = false,
+    AutoConvert = false,
     AntiAFK     = true,
-    TokenMagnet = true,
-    DebugLog    = false,
     Speed       = 40,
 }
 
-local SelectedField   = DEFAULT_FIELD
-local SelectedSlot    = "1"
-local SelectedPattern = DEFAULT_PATTERN
-
-local SessionStats = {
-    startTime       = time(),
-    tokensCollected = 0,
-    hiveRuns        = 0,
-    stuckCount      = 0,
-}
+local SelectedSlot = "1"
 
 -- ============================================================
---   Хранилище маршрутов + улей
+--   Хранилище точки конвертации
 -- ============================================================
 
-local RouteStore = { routes = {}, hivePoint = nil }
+local RouteStore = { routes = {}, convertPoint = nil }
+local ConvertPoint = nil
 
 local function serializeV3(p)
     return { x = math.floor(p.X*100)/100, y = math.floor(p.Y*100)/100, z = math.floor(p.Z*100)/100 }
@@ -165,45 +109,16 @@ local function saveRouteStore()
     pcall(function() writefile(ROUTE_FILE, HttpService:JSONEncode(RouteStore)) end)
 end
 
-local HivePoint = nil
-
-local function loadHivePoint()
-    if RouteStore.hivePoint then
-        HivePoint = deserializeV3(RouteStore.hivePoint)
+local function loadConvertPoint()
+    if RouteStore.convertPoint then
+        ConvertPoint = deserializeV3(RouteStore.convertPoint)
     end
 end
 
-local function saveHivePoint(pos)
-    HivePoint = pos
-    RouteStore.hivePoint = serializeV3(pos)
+local function saveConvertPoint(pos)
+    ConvertPoint = pos
+    RouteStore.convertPoint = serializeV3(pos)
     saveRouteStore()
-end
-
--- ============================================================
---   Дебаг-лог
--- ============================================================
-
-local logLines = {}
-local logLabel = nil
-
-local function dbg(msg)
-    if not Flags.DebugLog then return end
-    local line = ("[%.2f] %s"):format(time() % 1000, msg)
-    table.insert(logLines, line)
-    if #logLines > MAX_LOG_LINES then
-        table.remove(logLines, 1)
-    end
-    if logLabel then
-        local tail = {}
-        local start = math.max(1, #logLines - 5)
-        for i = start, #logLines do tail[#tail+1] = logLines[i] end
-        pcall(function() logLabel:Set(table.concat(tail, "\n")) end)
-    end
-    print(line)
-end
-
-local function getFullLog()
-    return table.concat(logLines, "\n")
 end
 
 -- ============================================================
@@ -246,7 +161,7 @@ local function clampToField(field, pos, margin)
 end
 
 -- ============================================================
---   Поиск земли (Raycast) — чтобы НЕ проваливаться
+--   Поиск земли (Raycast)
 -- ============================================================
 
 local rayParams = RaycastParams.new()
@@ -279,7 +194,6 @@ local function teleportTo(root, pos)
     end)
 end
 
--- CFrame шаг к цели. Возвращает true если достигли.
 local function cframeStep(root, dest, speed, dt)
     local pos  = root.Position
     local flat = Vector3.new(dest.X, pos.Y, dest.Z)
@@ -299,14 +213,10 @@ local function cframeStep(root, dest, speed, dt)
     return false
 end
 
-local function pressE(times)
-    times = times or 1
-    for _ = 1, times do
-        VIM:SendKeyEvent(true,  Enum.KeyCode.E, false, game)
-        task.wait(0.08)
-        VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
-        if times > 1 then task.wait(0.12) end
-    end
+local function pressE()
+    VIM:SendKeyEvent(true,  Enum.KeyCode.E, false, game)
+    task.wait(0.08)
+    VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
 end
 
 -- ============================================================
@@ -462,55 +372,14 @@ local function tokenValid(field)
 end
 
 -- ============================================================
---   Токен-магнит — мгновенный сбор ВСЕХ токенов в радиусе
--- ============================================================
-
-local lastMagnetTime = 0
-
-local function doTokenMagnet(root, field)
-    local now = time()
-    if now - lastMagnetTime < TOKEN_MAGNET_INTERVAL then return end
-    if not Flags.TokenMagnet then return end
-    lastMagnetTime = now
-
-    local col = workspace:FindFirstChild("Collectibles")
-    if not col then return end
-
-    local rootPos  = root.Position
-    local savedCF  = root.CFrame
-    local collected = 0
-
-    for _, t in ipairs(col:GetChildren()) do
-        if t:IsA("BasePart") and t.Parent then
-            local tPos = t.Position
-            if hDist(rootPos, tPos) <= TOKEN_MAGNET_RADIUS and insideField(field, tPos, 0) then
-                local owned = tokenOwned(t)
-                if isCocoOrCombo(t) or owned == nil or owned then
-                    root.CFrame = CFrame.new(tPos)
-                    collected = collected + 1
-                end
-            end
-        end
-    end
-
-    if collected > 0 then
-        root.CFrame = savedCF
-        SessionStats.tokensCollected = SessionStats.tokensCollected + collected
-        if collected > 2 then
-            dbg(("Magnet: %d tokens"):format(collected))
-        end
-    end
-end
-
--- ============================================================
---   Snake-паттерн (полное покрытие поля)
+--   Snake-паттерн
 -- ============================================================
 
 local patrolPoints    = nil
 local patrolIndex     = 1
 local activeSignature = nil
 
-local function pathSig() return SelectedField .. "::" .. SelectedPattern end
+local function pathSig() return SelectedField .. "::Snake" end
 
 local function invalidatePath()
     patrolPoints    = nil
@@ -540,48 +409,12 @@ local function buildSnake(field)
     return pts
 end
 
--- ============================================================
---   Spiral-паттерн (от центра наружу)
--- ============================================================
-
-local function buildSpiral(field)
-    local pts  = {}
-    local c    = field.center
-    local maxR = math.min(field.size.X, field.size.Z) * 0.45
-    local step = 6
-    local angStep = 15
-    local y    = c.Y
-
-    local r = 2
-    local angle = 0
-    while r <= maxR do
-        local rad = math.rad(angle)
-        local x = c.X + math.cos(rad) * r
-        local z = c.Z + math.sin(rad) * r
-        pts[#pts+1] = Vector3.new(x, y, z)
-        angle = angle + angStep
-        r = r + step * (angStep / 360)
-    end
-
-    for i = #pts, 1, -2 do
-        if pts[i] then pts[#pts+1] = pts[i] end
-    end
-
-    if #pts == 0 then pts[1] = c end
-    return pts
-end
-
 local function getOrBuildPath(field)
     local sig = pathSig()
     if activeSignature ~= sig or not patrolPoints then
         activeSignature = sig
-        if SelectedPattern == "Spiral" then
-            patrolPoints = buildSpiral(field)
-        else
-            patrolPoints = buildSnake(field)
-        end
+        patrolPoints = buildSnake(field)
         patrolIndex = 1
-        dbg(("%s: %d pts"):format(SelectedPattern, #patrolPoints))
     end
     return patrolPoints
 end
@@ -593,143 +426,17 @@ local function nextPatrolPoint(field)
 end
 
 -- ============================================================
---   Roam AI — Heat-map
--- ============================================================
-
-local RoamState = {
-    heatMap       = {},
-    target        = nil,
-    lastCellX     = nil,
-    lastCellZ     = nil,
-    lastRegenTime = 0,
-}
-
-local function cellKey(cx, cz) return cx .. "," .. cz end
-
-local function worldToCell(field, pos)
-    local ox = pos.X - (field.center.X - field.size.X * 0.5)
-    local oz = pos.Z - (field.center.Z - field.size.Z * 0.5)
-    return math.floor(ox / ROAM_CELL_SIZE), math.floor(oz / ROAM_CELL_SIZE)
-end
-
-local function cellToWorld(field, cx, cz)
-    local x = field.center.X - field.size.X * 0.5 + (cx + 0.5) * ROAM_CELL_SIZE
-    local z = field.center.Z - field.size.Z * 0.5 + (cz + 0.5) * ROAM_CELL_SIZE
-    return Vector3.new(x, field.center.Y, z)
-end
-
-local function getCellsCount(field)
-    return math.ceil(field.size.X / ROAM_CELL_SIZE), math.ceil(field.size.Z / ROAM_CELL_SIZE)
-end
-
-local function initHeatMap(field)
-    RoamState.heatMap = {}
-    local nx, nz = getCellsCount(field)
-    for cx = 0, nx-1 do
-        for cz = 0, nz-1 do
-            RoamState.heatMap[cellKey(cx, cz)] = 1.0
-        end
-    end
-    dbg(("HeatMap: %dx%d"):format(nx, nz))
-end
-
-local function getHeat(cx, cz)
-    return RoamState.heatMap[cellKey(cx, cz)] or 1.0
-end
-
-local function visitCell(field, pos)
-    local cx, cz = worldToCell(field, pos)
-    local key = cellKey(cx, cz)
-    local old = RoamState.heatMap[key] or 1.0
-    RoamState.heatMap[key] = old * ROAM_HEAT_DECAY
-    if cx ~= RoamState.lastCellX or cz ~= RoamState.lastCellZ then
-        RoamState.lastCellX = cx
-        RoamState.lastCellZ = cz
-    end
-end
-
-local function regenHeatMap()
-    local now = time()
-    if now - RoamState.lastRegenTime < ROAM_HEAT_REGEN_INT then return end
-    RoamState.lastRegenTime = now
-    for key, heat in pairs(RoamState.heatMap) do
-        if heat < 1.0 then
-            RoamState.heatMap[key] = math.min(1.0, heat + ROAM_HEAT_REGEN)
-        end
-    end
-end
-
-local function coldestCell(field, nearPos, radius)
-    local nx, nz = getCellsCount(field)
-    local bestHeat, bestCX, bestCZ = -1, nil, nil
-    for cx = 0, nx-1 do
-        for cz = 0, nz-1 do
-            local wp = cellToWorld(field, cx, cz)
-            if not nearPos or hDist(nearPos, wp) <= radius then
-                local h = getHeat(cx, cz)
-                if h > bestHeat then
-                    bestHeat = h
-                    bestCX, bestCZ = cx, cz
-                end
-            end
-        end
-    end
-    if bestCX == nil then
-        bestCX = math.floor(nx / 2)
-        bestCZ = math.floor(nz / 2)
-        bestHeat = getHeat(bestCX, bestCZ)
-    end
-    return bestCX, bestCZ, bestHeat
-end
-
-local function randomInField(field)
-    local m  = ROAM_BOUNDARY_MARGIN
-    local hx = math.max(field.size.X * 0.5 - m, 2)
-    local hz = math.max(field.size.Z * 0.5 - m, 2)
-    return Vector3.new(
-        field.center.X + (math.random() * 2 - 1) * hx,
-        field.center.Y,
-        field.center.Z + (math.random() * 2 - 1) * hz
-    )
-end
-
-local function roamPickTarget(field, root, tokens)
-    if tokens and #tokens > 0 then
-        local tok = tokens[1]
-        local target = Vector3.new(tok.Position.X, field.center.Y, tok.Position.Z)
-        target = clampToField(field, target, ROAM_BOUNDARY_MARGIN)
-        dbg(("Roam -> token: %s"):format(tok.Name))
-        return target
-    end
-    if math.random() < ROAM_WANDER_BIAS then
-        return randomInField(field)
-    else
-        local cx, cz = coldestCell(field, nil, nil)
-        local wp = cellToWorld(field, cx, cz)
-        return clampToField(field, wp, ROAM_BOUNDARY_MARGIN)
-    end
-end
-
-local function resetRoam(field)
-    initHeatMap(field)
-    RoamState.target        = nil
-    RoamState.lastCellX     = nil
-    RoamState.lastCellZ     = nil
-    RoamState.lastRegenTime = time()
-end
-
--- ============================================================
 --   Состояние фарма
 -- ============================================================
 
-local currentTarget  = nil
-local currentMode    = "idle"
-local lastTargetScan = 0
-local lastProgressAt = 0
-local lastRootPos    = nil
-local isDoingHiveRun = false
-local statusLabel    = nil
-local lastDt         = 0.05
+local currentTarget   = nil
+local currentMode     = "idle"
+local lastTargetScan  = 0
+local lastProgressAt  = 0
+local lastRootPos     = nil
+local isConverting    = false
+local statusLabel     = nil
+local lastDt          = 0.05
 
 local function setStatus(txt)
     if statusLabel then pcall(function() statusLabel:Set(txt) end) end
@@ -742,11 +449,9 @@ local function clearFarmState()
     lastTargetScan = 0
     lastProgressAt = 0
     lastRootPos    = nil
-    isDoingHiveRun = false
+    isConverting   = false
     invalidatePath()
-    RoamState.target = nil
     setStatus("Stopped")
-    dbg("=== clearFarmState ===")
 end
 
 -- ============================================================
@@ -776,9 +481,8 @@ end
 local function resetToField(root, hum)
     local field = getField()
     invalidatePath()
-    if SelectedPattern == "Roam" then resetRoam(field) end
     currentToken   = nil
-    currentMode    = SelectedPattern == "Roam" and "roam" or "patrol"
+    currentMode    = "patrol"
     currentTarget  = field.center
 
     teleportTo(root, fieldCenter(field))
@@ -789,12 +493,10 @@ local function resetToField(root, hum)
     lastRootPos    = root.Position
     lastProgressAt = time()
     setStatus("Farm: " .. SelectedField)
-    dbg("resetToField -> " .. SelectedField .. " mode=" .. currentMode)
 end
 
 local function checkField(root, hum, field)
     if not insideField(field, root.Position, FIELD_REENTER_PADDING) then
-        dbg("Out of field -> TP back")
         resetToField(root, hum)
         return true
     end
@@ -802,41 +504,39 @@ local function checkField(root, hum, field)
 end
 
 -- ============================================================
---   Hive Run
+--   Автоконвертация
 -- ============================================================
 
 local returnPosition = nil
 
-local function doHiveRun()
-    if isDoingHiveRun then return end
-    if not HivePoint then
-        setStatus("No hive point!")
+local function doAutoConvert()
+    if isConverting then return end
+    if not ConvertPoint then
+        setStatus("No convert point!")
         return
     end
-    isDoingHiveRun = true
-    dbg("=== Hive Run START ===")
+    isConverting = true
 
     local ok, err = pcall(function()
-        setStatus("Hive: flying...")
+        setStatus("Convert: teleporting...")
         local _, hum, root = getCharParts()
         if not hum or not root then return end
 
         returnPosition = fieldCenter(getField())
-        teleportTo(root, HivePoint)
+        teleportTo(root, ConvertPoint)
         task.wait(0.5)
 
-        setStatus("Hive: converting...")
-        pressE(HIVE_E_SPAM)
+        setStatus("Convert: pressing E...")
+        pressE()
 
-        local endTime = time() + HIVE_WAIT_MIN + math.random() * (HIVE_WAIT_MAX - HIVE_WAIT_MIN)
+        local endTime = time() + CONVERT_WAIT
         while time() < endTime do
             local rem = math.ceil(endTime - time())
-            setStatus(("Hive: %ds..."):format(rem))
-            if rem % 3 == 0 then pressE(1) end
+            setStatus(("Convert: %ds..."):format(rem))
             task.wait(1)
         end
 
-        setStatus("Returning...")
+        setStatus("Returning to field...")
         _, hum, root = getCharParts()
         if hum and root then
             teleportTo(root, returnPosition or fieldCenter(getField()))
@@ -846,27 +546,17 @@ local function doHiveRun()
             lastProgressAt = time()
             lastRootPos    = root.Position
             invalidatePath()
-            if SelectedPattern == "Roam" then
-                resetRoam(getField())
-                currentMode = "roam"
-            else
-                currentMode = "patrol"
-            end
-            currentToken  = nil
-            currentTarget = getField().center
+            currentMode    = "patrol"
+            currentToken   = nil
+            currentTarget  = getField().center
         end
     end)
 
-    isDoingHiveRun = false
-    dbg("=== Hive Run END ===")
+    isConverting = false
 
-    if not ok then
-        dbg("Hive ERROR: " .. tostring(err))
-        setStatus("Hive error!")
-    else
-        SessionStats.hiveRuns = SessionStats.hiveRuns + 1
+    if ok then
         setStatus("Farm resumed")
-        Rayfield:Notify({ Title="Hive", Content="Converted! Returning.", Duration=3 })
+        Rayfield:Notify({ Title="Convert", Content="Done! Returning to field.", Duration=3 })
     end
 end
 
@@ -875,10 +565,10 @@ end
 -- ============================================================
 
 loadRouteStore()
-loadHivePoint()
+loadConvertPoint()
 
 -- ============================================================
---   ОСНОВНОЙ ЦИКЛ ФАРМА
+--   ОСНОВНОЙ ЦИКЛ ФАРМА (Snake)
 -- ============================================================
 
 local lastFarmTick = time()
@@ -886,7 +576,7 @@ local lastFarmTick = time()
 task.spawn(function()
     while true do
         task.wait(FARM_INTERVAL)
-        if not Flags.AutoFarm or isDoingHiveRun then continue end
+        if not Flags.AutoFarm or isConverting then continue end
 
         local ok, err = pcall(function()
             local _, hum, root = getCharParts()
@@ -902,137 +592,54 @@ task.spawn(function()
 
             if checkField(root, hum, field) then return end
 
-            -- Токен-магнит
-            doTokenMagnet(root, field)
-
             local moveSpeed = Flags.CFrameSpeed and Flags.Speed or CFRAME_BASE_SPEED
 
-            -- ════════════════════════════════════════════════
-            -- SNAKE / SPIRAL
-            -- ════════════════════════════════════════════════
-            if SelectedPattern == "Snake" or SelectedPattern == "Spiral" then
+            -- SNAKE PATTERN
+            if currentMode ~= "patrol" and currentMode ~= "token" then
+                currentMode   = "patrol"
+                currentTarget = nextPatrolPoint(field)
+            end
 
-                if currentMode ~= "patrol" and currentMode ~= "token" then
+            if now - lastTargetScan >= TOKEN_SCAN_INTERVAL then
+                lastTargetScan = now
+                local tokens = getTokensSorted(root, field)
+                if #tokens > 0 then
+                    currentToken  = tokens[1]
+                    currentTarget = currentToken.Position
+                    currentMode   = "token"
+                elseif currentMode == "token" then
                     currentMode   = "patrol"
                     currentTarget = nextPatrolPoint(field)
                 end
+            end
 
-                if now - lastTargetScan >= TOKEN_SCAN_INTERVAL then
-                    lastTargetScan = now
-                    local tokens = getTokensSorted(root, field)
-                    if #tokens > 0 then
-                        currentToken  = tokens[1]
-                        currentTarget = currentToken.Position
-                        currentMode   = "token"
-                    elseif currentMode == "token" then
-                        currentMode   = "patrol"
-                        currentTarget = nextPatrolPoint(field)
-                    end
-                end
+            if currentMode == "token" and not tokenValid(field) then
+                currentToken  = nil
+                currentMode   = "patrol"
+                currentTarget = nextPatrolPoint(field)
+            end
 
-                if currentMode == "token" and not tokenValid(field) then
+            if currentTarget then
+                local dist = hDist(root.Position, currentTarget)
+
+                if currentMode == "token" and dist <= TOKEN_REACH_DIST then
                     currentToken  = nil
                     currentMode   = "patrol"
                     currentTarget = nextPatrolPoint(field)
+                elseif currentMode == "patrol" and dist <= PATROL_REACH_DIST then
+                    currentTarget = nextPatrolPoint(field)
+                elseif isStuck(now) then
+                    lastProgressAt = now
+                    lastRootPos    = root.Position
+                    if currentMode == "token" then currentToken = nil end
+                    currentMode   = "patrol"
+                    currentTarget = nextPatrolPoint(field)
                 end
 
                 if currentTarget then
-                    local dist = hDist(root.Position, currentTarget)
-
-                    if currentMode == "token" and dist <= TOKEN_REACH_DIST then
-                        SessionStats.tokensCollected = SessionStats.tokensCollected + 1
-                        currentToken  = nil
-                        currentMode   = "patrol"
-                        currentTarget = nextPatrolPoint(field)
-                    elseif currentMode == "patrol" and dist <= PATROL_REACH_DIST then
-                        currentTarget = nextPatrolPoint(field)
-                    elseif isStuck(now) then
-                        SessionStats.stuckCount = SessionStats.stuckCount + 1
-                        lastProgressAt = now
-                        lastRootPos    = root.Position
-                        if currentMode == "token" then currentToken = nil end
-                        currentMode   = "patrol"
-                        currentTarget = nextPatrolPoint(field)
-                        dbg("Stuck -> next point")
-                    end
-
-                    if currentTarget then
-                        cframeStep(root, currentTarget, moveSpeed, dt)
-                    end
+                    cframeStep(root, currentTarget, moveSpeed, dt)
                 end
-
-            -- ════════════════════════════════════════════════
-            -- ROAM AI
-            -- ════════════════════════════════════════════════
-            elseif SelectedPattern == "Roam" then
-
-                if currentMode ~= "roam" then
-                    currentMode = "roam"
-                    resetRoam(field)
-                end
-
-                visitCell(field, root.Position)
-                regenHeatMap()
-
-                if now - lastTargetScan >= TOKEN_SCAN_INTERVAL then
-                    lastTargetScan = now
-                    local tokens = getTokensSorted(root, field)
-                    if #tokens > 0 then
-                        local bestTok = tokens[1]
-                        if bestTok ~= currentToken or not RoamState.target then
-                            currentToken     = bestTok
-                            RoamState.target = roamPickTarget(field, root, tokens)
-                            currentTarget    = RoamState.target
-                        end
-                    else
-                        currentToken     = nil
-                        RoamState.target = roamPickTarget(field, root, {})
-                        currentTarget    = RoamState.target
-                    end
-                end
-
-                if currentToken and not tokenValid(field) then
-                    currentToken     = nil
-                    RoamState.target = roamPickTarget(field, root, {})
-                    currentTarget    = RoamState.target
-                end
-
-                if not currentTarget then
-                    RoamState.target = roamPickTarget(field, root, {})
-                    currentTarget    = RoamState.target
-                end
-
-                if currentTarget then
-                    currentTarget    = clampToField(field, currentTarget, ROAM_BOUNDARY_MARGIN)
-                    RoamState.target = currentTarget
-                end
-
-                if currentTarget then
-                    local dist = hDist(root.Position, currentTarget)
-
-                    if currentToken and dist <= TOKEN_REACH_DIST then
-                        SessionStats.tokensCollected = SessionStats.tokensCollected + 1
-                        currentToken     = nil
-                        RoamState.target = roamPickTarget(field, root, {})
-                        currentTarget    = RoamState.target
-                    elseif not currentToken and dist <= ROAM_RESCAN_DIST then
-                        RoamState.target = roamPickTarget(field, root, {})
-                        currentTarget    = RoamState.target
-                    elseif isStuck(now) then
-                        SessionStats.stuckCount = SessionStats.stuckCount + 1
-                        lastProgressAt   = now
-                        lastRootPos      = root.Position
-                        currentToken     = nil
-                        RoamState.target = roamPickTarget(field, root, {})
-                        currentTarget    = RoamState.target
-                        dbg("Roam: stuck -> new target")
-                    end
-
-                    if currentTarget then
-                        cframeStep(root, currentTarget, moveSpeed, dt)
-                    end
-                end
-            end -- patterns
+            end
 
             -- Статус
             local polCur, polMax = getPollenStats()
@@ -1043,24 +650,22 @@ task.spawn(function()
             local modeIcon = currentMode == "token" and "T" or "P"
             setStatus(("[%s] %s%s"):format(modeIcon, SelectedField, polStr))
 
-        end) -- pcall
-        if not ok then dbg("Farm error: " .. tostring(err)) end
+        end)
     end
 end)
 
 -- ============================================================
---   Авто-проверка пыльцы -> Hive Run
+--   Авто-проверка пыльцы -> AutoConvert
 -- ============================================================
 
 task.spawn(function()
     while true do
-        task.wait(POLLEN_CHECK_INTERVAL)
-        if not Flags.AutoFarm or not Flags.AutoHive then continue end
-        if isDoingHiveRun or not HivePoint then continue end
+        task.wait(1.0)
+        if not Flags.AutoFarm or not Flags.AutoConvert then continue end
+        if isConverting or not ConvertPoint then continue end
         pcall(function()
             if isBackpackFull() then
-                dbg("Backpack full -> Hive Run")
-                task.spawn(doHiveRun)
+                task.spawn(doAutoConvert)
             end
         end)
     end
@@ -1072,7 +677,7 @@ end)
 
 task.spawn(function()
     while task.wait(DIG_INTERVAL) do
-        if Flags.AutoDig and Flags.AutoFarm and not isDoingHiveRun then
+        if Flags.AutoDig and Flags.AutoFarm and not isConverting then
             pcall(function()
                 VIM:SendMouseButtonEvent(0, 0, 0, true,  game, 0)
                 task.wait(0.04)
@@ -1083,7 +688,7 @@ task.spawn(function()
 end)
 
 -- ============================================================
---   Auto Planter
+--   Auto Planter (0.7 speed)
 -- ============================================================
 
 task.spawn(function()
@@ -1094,8 +699,8 @@ task.spawn(function()
         ["7"]=Enum.KeyCode.Seven,
     }
     while true do
-        task.wait(PLANTER_MIN_WAIT + math.random() * (PLANTER_MAX_WAIT - PLANTER_MIN_WAIT))
-        if Flags.AutoPlanter and Flags.AutoFarm and not isDoingHiveRun then
+        task.wait(PLANTER_WAIT)
+        if Flags.AutoPlanter and Flags.AutoFarm and not isConverting then
             pcall(function()
                 local kc = keyMap[SelectedSlot]
                 if kc then
@@ -1126,17 +731,33 @@ task.spawn(function()
 end)
 
 -- ============================================================
---   CFrame Speed (Heartbeat)
+--   CFrame Speed (ходьба, прыжок, полёт)
 -- ============================================================
 
-RunService.Heartbeat:Connect(function()
+RunService.Heartbeat:Connect(function(dt)
     if not Flags.CFrameSpeed then return end
     pcall(function()
         local _, hum, root = getCharParts()
         if not hum or not root then return end
-        hum.WalkSpeed = Flags.Speed
-        if root.AssemblyLinearVelocity.Magnitude > Flags.Speed * 1.5 then
-            root.AssemblyLinearVelocity = root.AssemblyLinearVelocity.Unit * Flags.Speed
+        
+        local speed = Flags.Speed
+        hum.WalkSpeed = speed
+        hum.JumpPower = 50
+        
+        local vel = root.AssemblyLinearVelocity
+        local hVel = Vector3.new(vel.X, 0, vel.Z)
+        
+        if hVel.Magnitude > 0.1 then
+            local dir = hVel.Unit
+            local targetVel = dir * speed
+            root.AssemblyLinearVelocity = Vector3.new(targetVel.X, vel.Y, targetVel.Z)
+        end
+        
+        -- CFrame boost for all states (walking, jumping, flying)
+        local moveDir = hum.MoveDirection
+        if moveDir.Magnitude > 0 then
+            local boost = moveDir * speed * dt
+            root.CFrame = root.CFrame + Vector3.new(boost.X, 0, boost.Z)
         end
     end)
 end)
@@ -1146,9 +767,9 @@ end)
 -- ============================================================
 
 local Window = Rayfield:CreateWindow({
-    Name              = "JanusBSS v16.0",
+    Name              = "JanusBSS v18.0",
     LoadingTitle      = "JanusBSS",
-    LoadingSubtitle   = "CFrame AI + Token Magnet",
+    LoadingSubtitle   = "Snake + AutoConvert",
     ConfigurationSaving = { Enabled = false },
 })
 
@@ -1158,7 +779,7 @@ local MainTab = Window:CreateTab("Farm", 4483362458)
 statusLabel = MainTab:CreateLabel("Stopped")
 
 MainTab:CreateToggle({
-    Name = "AI AutoFarm", CurrentValue = false,
+    Name = "AI AutoFarm (Snake)", CurrentValue = false,
     Callback = function(v)
         Flags.AutoFarm = v
         if not v then
@@ -1176,11 +797,6 @@ MainTab:CreateToggle({
 })
 
 MainTab:CreateToggle({
-    Name = "Token Magnet", CurrentValue = true,
-    Callback = function(v) Flags.TokenMagnet = v end,
-})
-
-MainTab:CreateToggle({
     Name = "CFrame Speed", CurrentValue = false,
     Callback = function(v) Flags.CFrameSpeed = v end,
 })
@@ -1188,28 +804,6 @@ MainTab:CreateToggle({
 MainTab:CreateSlider({
     Name = "Speed", Range = {16, 150}, Increment = 1, CurrentValue = 40,
     Callback = function(v) Flags.Speed = v end,
-})
-
-MainTab:CreateDropdown({
-    Name = "Field", Options = FieldNames, CurrentOption = { DEFAULT_FIELD },
-    Callback = function(opt)
-        SelectedField = type(opt)=="table" and (opt[1] or DEFAULT_FIELD) or opt
-        clearFarmState()
-        local _, hum, root = getCharParts()
-        if Flags.AutoFarm and hum and root then resetToField(root, hum) end
-    end,
-})
-
-MainTab:CreateDropdown({
-    Name = "Pattern", Options = PatternNames, CurrentOption = { DEFAULT_PATTERN },
-    Callback = function(opt)
-        SelectedPattern = type(opt)=="table" and (opt[1] or DEFAULT_PATTERN) or opt
-        invalidatePath()
-        if SelectedPattern == "Roam" then resetRoam(getField()) end
-        local _, hum, root = getCharParts()
-        if Flags.AutoFarm and hum and root then resetToField(root, hum) end
-        dbg("Pattern -> " .. SelectedPattern)
-    end,
 })
 
 MainTab:CreateDropdown({
@@ -1225,38 +819,38 @@ MainTab:CreateToggle({
 })
 
 MainTab:CreateButton({
-    Name = "TP to Field",
+    Name = "TP to Spider Field",
     Callback = function()
         local _, _, root = getCharParts()
         if root then teleportTo(root, fieldCenter(getField())) end
     end,
 })
 
--- Hive Tab
-local HiveTab = Window:CreateTab("Hive", 4483362458)
+-- Convert Tab
+local ConvertTab = Window:CreateTab("Convert", 4483362458)
 
-HiveTab:CreateLabel("Auto honey conversion")
+ConvertTab:CreateLabel("Auto conversion when backpack is full")
 
-HiveTab:CreateToggle({
-    Name = "Auto Hive Convert", CurrentValue = false,
+ConvertTab:CreateToggle({
+    Name = "Auto Convert", CurrentValue = false,
     Callback = function(v)
-        Flags.AutoHive = v
-        if v and not HivePoint then
-            Rayfield:Notify({ Title="Hive", Content="Save hive point first!", Duration=4 })
+        Flags.AutoConvert = v
+        if v and not ConvertPoint then
+            Rayfield:Notify({ Title="Convert", Content="Save convert point first!", Duration=4 })
         end
     end,
 })
 
-HiveTab:CreateLabel("Stand at hive -> press button below")
+ConvertTab:CreateLabel("Stand at convert spot -> press button below")
 
-HiveTab:CreateButton({
-    Name = "Save Hive Point",
+ConvertTab:CreateButton({
+    Name = "Save Convert Point",
     Callback = function()
         local _, _, root = getCharParts()
         if root then
-            saveHivePoint(root.Position)
+            saveConvertPoint(root.Position)
             Rayfield:Notify({
-                Title   = "Hive",
+                Title   = "Convert",
                 Content = ("Saved: %.1f, %.1f, %.1f"):format(root.Position.X, root.Position.Y, root.Position.Z),
                 Duration = 3,
             })
@@ -1264,108 +858,18 @@ HiveTab:CreateButton({
     end,
 })
 
-HiveTab:CreateButton({
-    Name = "Test Hive Run",
+ConvertTab:CreateButton({
+    Name = "Test Convert",
     Callback = function()
-        if not HivePoint then
-            Rayfield:Notify({ Title="Hive", Content="No hive point!", Duration=3 })
+        if not ConvertPoint then
+            Rayfield:Notify({ Title="Convert", Content="No convert point!", Duration=3 })
             return
         end
-        task.spawn(doHiveRun)
+        task.spawn(doAutoConvert)
     end,
 })
 
--- Stats Tab
-local StatsTab = Window:CreateTab("Stats", 4483362458)
-
-local statsLabel = StatsTab:CreateLabel("Loading...")
-
-task.spawn(function()
-    while true do
-        task.wait(2)
-        local uptime = time() - SessionStats.startTime
-        local mins = math.floor(uptime / 60)
-        local secs = math.floor(uptime % 60)
-        local cur, max = getPollenStats()
-        if not cur then cur, max = getPollenFromGui() end
-        local polStr = cur and max and ("%d / %d"):format(cur, max) or "???"
-
-        local info = {
-            ("Uptime: %dm %ds"):format(mins, secs),
-            ("Tokens: %d"):format(SessionStats.tokensCollected),
-            ("Hive runs: %d"):format(SessionStats.hiveRuns),
-            ("Stuck: %d"):format(SessionStats.stuckCount),
-            ("Pollen: %s"):format(polStr),
-            ("Field: %s"):format(SelectedField),
-            ("Pattern: %s"):format(SelectedPattern),
-            ("Mode: %s"):format(currentMode),
-        }
-        pcall(function() statsLabel:Set(table.concat(info, "\n")) end)
-    end
-end)
-
--- Debug Tab
-local DebugTab = Window:CreateTab("Debug", 4483362458)
-
-DebugTab:CreateToggle({
-    Name = "Debug Log", CurrentValue = false,
-    Callback = function(v)
-        Flags.DebugLog = v
-        if v then dbg("=== Debug ON ===") end
-    end,
-})
-
-DebugTab:CreateLabel("Recent events:")
-logLabel = DebugTab:CreateLabel("(empty)")
-
-DebugTab:CreateButton({
-    Name = "Print Full Log",
-    Callback = function()
-        print("=== FULL LOG ===")
-        print(getFullLog())
-        print("=== END ===")
-        Rayfield:Notify({ Title="Debug", Content="Printed to Output!", Duration=3 })
-    end,
-})
-
-DebugTab:CreateButton({
-    Name = "Clear Log",
-    Callback = function()
-        logLines = {}
-        pcall(function() logLabel:Set("(cleared)") end)
-    end,
-})
-
-DebugTab:CreateButton({
-    Name = "State Dump",
-    Callback = function()
-        local _, _, root = getCharParts()
-        local pos = root and root.Position or Vector3.zero
-        local field = getField()
-        local inside = insideField(field, pos, 0)
-        local cur, max = getPollenStats()
-        if not cur then cur, max = getPollenFromGui() end
-
-        local info = {
-            ("Mode: %s"):format(currentMode),
-            ("Pattern: %s"):format(SelectedPattern),
-            ("Field: %s"):format(SelectedField),
-            ("Pos: %.1f, %.1f, %.1f"):format(pos.X, pos.Y, pos.Z),
-            ("Inside: %s"):format(tostring(inside)),
-            ("Token: %s"):format(currentToken and currentToken.Name or "nil"),
-            ("Target: %s"):format(currentTarget and ("%.1f,%.1f,%.1f"):format(currentTarget.X, currentTarget.Y, currentTarget.Z) or "nil"),
-            ("Stuck: %.1fs"):format(time() - lastProgressAt),
-            ("Pollen: %s/%s"):format(tostring(cur), tostring(max)),
-            ("Hive: %s"):format(HivePoint and ("%.1f,%.1f,%.1f"):format(HivePoint.X, HivePoint.Y, HivePoint.Z) or "nil"),
-            ("HiveRun: %s"):format(tostring(isDoingHiveRun)),
-            ("Magnet: %s"):format(tostring(Flags.TokenMagnet)),
-        }
-        print("=== STATE ===\n" .. table.concat(info, "\n"))
-        Rayfield:Notify({ Title="Dump", Content="Printed to Output!", Duration=3 })
-    end,
-})
-
-DebugTab:CreateToggle({
+ConvertTab:CreateToggle({
     Name = "Anti-AFK", CurrentValue = true,
     Callback = function(v) Flags.AntiAFK = v end,
 })
@@ -1375,9 +879,8 @@ DebugTab:CreateToggle({
 -- ============================================================
 
 Player.CharacterRemoving:Connect(function()
-    isDoingHiveRun = false
+    isConverting = false
     clearFarmState()
-    dbg("CharacterRemoving -> reset")
 end)
 
 Player.CharacterAdded:Connect(function(char)
@@ -1386,7 +889,6 @@ Player.CharacterAdded:Connect(function(char)
     if not hum or not root then return end
     task.wait(1)
     if Flags.AutoFarm then
-        dbg("CharacterAdded -> auto-restart")
         resetToField(root, hum)
     end
 end)
@@ -1396,9 +898,7 @@ end)
 -- ============================================================
 
 Rayfield:Notify({
-    Title    = "JanusBSS v17.0",
-    Content  = "CFrame AI + Token Magnet loaded!",
+    Title    = "JanusBSS v18.0",
+    Content  = "Snake + AutoConvert loaded!",
     Duration = 4,
 })
-
-dbg("=== JanusBSS v17.0 loaded ===")

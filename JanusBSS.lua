@@ -1396,9 +1396,9 @@ end)
 -- ============================================================
 
 Rayfield:Notify({
-    Title    = "JanusBSS v16.0",
+    Title    = "JanusBSS v17.0",
     Content  = "CFrame AI + Token Magnet loaded!",
     Duration = 4,
 })
 
-dbg("=== JanusBSS v16.0 loaded ===")
+dbg("=== JanusBSS v17.0 loaded ===")

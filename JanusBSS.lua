@@ -15,8 +15,8 @@ local FARM_INTERVAL         = 0.08   -- главный тик фарма
 local TARGET_SCAN_INTERVAL  = 0.20   -- как часто искать токены
 local MOVE_COMMAND_INTERVAL = 0.18   -- минимум между MoveTo
 local DIG_INTERVAL          = 0.12   -- интервал авто-копания
-local PLANTER_MIN_WAIT      = 2.0    -- мин. пауза плантера
-local PLANTER_MAX_WAIT      = 3.0    -- макс. пауза плантера
+local PLANTER_MIN_WAIT      = 0.6    -- мин. пауза плантера
+local PLANTER_MAX_WAIT      = 1.0    -- макс. пауза плантера
 
 -- Расстояния
 local PATROL_REACH_DISTANCE = 4      -- точка патруля достигнута

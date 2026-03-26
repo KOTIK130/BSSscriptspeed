@@ -1,5 +1,5 @@
 -- ============================================================
---   JanusBSS AutoFarm v18.3  |  Snake + AutoConvert + CFrame Speed (FIXED)
+--   JanusBSS AutoFarm v19.0  |  Snake + AutoConvert + CFrame Speed
 -- ============================================================
 
 -- ╔══════════════════════════════════════════════════════════╗
@@ -10,18 +10,15 @@ local DEFAULT_FIELD   = "Spider Field"
 local ROUTE_FILE      = "JanusBSS_FieldRoutes.json"
 
 -- Интервалы (секунды)
-local FARM_INTERVAL         = 0.03
+local FARM_INTERVAL         = 0.016  -- ~60 fps
 local TOKEN_SCAN_INTERVAL   = 0.25
-local DIG_INTERVAL          = 0.10
+local DIG_INTERVAL          = 0.08
 local PLANTER_WAIT          = 0.7
 local ANTI_AFK_INTERVAL     = 120
 local CONVERT_WAIT          = 9.5
 
--- Скорость фарма (studs per step)
-local FARM_MOVE_SPEED       = 1.2
-
 -- Расстояния
-local PATROL_REACH_DIST     = 3
+local PATROL_REACH_DIST     = 4
 local TOKEN_REACH_DIST      = 3
 local FIELD_REENTER_PADDING = 5
 local CLUSTER_RADIUS        = 10
@@ -34,7 +31,7 @@ local STUCK_MIN_MOVE        = 2
 -- Прочее
 local TELEPORT_HEIGHT       = 8
 local GROUND_RAY_DIST       = 60
-local FARM_HEIGHT           = 3
+local GROUND_OFFSET         = 0  -- персонаж на земле, не летает
 
 -- ============================================================
 --   Сервисы
@@ -69,7 +66,7 @@ local Flags = {
     AutoPlanter = false,
     AutoConvert = false,
     AntiAFK     = true,
-    Speed       = 48,
+    Speed       = 48,  -- используется и для CFrame Speed и для автофарма
 }
 
 local SelectedSlot = "1"
@@ -159,7 +156,7 @@ rayParams.FilterType = Enum.RaycastFilterType.Blacklist
 local function findGround(pos)
     local char = Player.Character
     rayParams.FilterDescendantsInstances = char and {char} or {}
-    local origin = Vector3.new(pos.X, pos.Y + 10, pos.Z)
+    local origin = Vector3.new(pos.X, pos.Y + 20, pos.Z)
     local result = workspace:Raycast(origin, Vector3.new(0, -GROUND_RAY_DIST, 0), rayParams)
     if result then
         return result.Position.Y
@@ -169,7 +166,7 @@ end
 
 local function fieldCenter(f)
     local groundY = findGround(f.center + Vector3.new(0, TELEPORT_HEIGHT, 0))
-    return Vector3.new(f.center.X, groundY + FARM_HEIGHT, f.center.Z)
+    return Vector3.new(f.center.X, groundY + 3, f.center.Z)
 end
 
 -- ============================================================
@@ -350,7 +347,7 @@ local function tokenValid(field)
 end
 
 -- ============================================================
---   Snake-паттерн (простая змейка)
+--   Snake-паттерн (простая змейка по ЗЕМЛЕ)
 -- ============================================================
 
 local snakePoints = {}
@@ -363,12 +360,15 @@ local function buildSnakePoints(field)
     local hx  = field.size.X * 0.40
     local hz  = field.size.Z * 0.40
     local rows = 6
+    
+    -- Находим уровень земли один раз
     local groundY = findGround(c + Vector3.new(0, 20, 0))
-    local y = groundY + FARM_HEIGHT
 
     for row = 0, rows - 1 do
         local alpha = row / (rows - 1)
         local z = c.Z - hz + hz * 2 * alpha
+        -- Y = уровень земли + небольшой оффсет для ног
+        local y = groundY + GROUND_OFFSET
         local L = Vector3.new(c.X - hx, y, z)
         local R = Vector3.new(c.X + hx, y, z)
         if row % 2 == 0 then
@@ -418,6 +418,7 @@ local lastProgressAt  = 0
 local lastRootPos     = nil
 local isConverting    = false
 local statusLabel     = nil
+local lastFarmTime    = 0
 
 local function setStatus(txt)
     if statusLabel then pcall(function() statusLabel:Set(txt) end) end
@@ -550,7 +551,7 @@ loadRouteStore()
 loadConvertPoint()
 
 -- ============================================================
---   ОСНОВНОЙ ЦИКЛ ФАРМА (Snake) - CFrame движение
+--   ОСНОВНОЙ ЦИКЛ ФАРМА (Snake) - движение через CFrame Speed
 -- ============================================================
 
 task.spawn(function()
@@ -564,6 +565,8 @@ task.spawn(function()
 
             local field = getField()
             local now   = time()
+            local dt    = now - lastFarmTime
+            lastFarmTime = now
 
             updateProgress(root, now)
 
@@ -623,24 +626,41 @@ task.spawn(function()
                     currentTarget = getSnakeTarget()
                 end
 
-                -- CFrame движение к цели
+                -- CFrame движение к цели (используем Flags.Speed!)
                 if currentTarget and dist > 1 then
                     local targetPos = currentTarget
-                    local groundY = findGround(targetPos)
-                    local destY = groundY + FARM_HEIGHT
-                    local dest = Vector3.new(targetPos.X, destY, targetPos.Z)
                     
-                    local dir = (dest - rootPos)
-                    local flatDir = Vector3.new(dir.X, 0, dir.Z)
+                    -- Направление к цели (горизонтальное)
+                    local dir = Vector3.new(targetPos.X - rootPos.X, 0, targetPos.Z - rootPos.Z)
                     
-                    if flatDir.Magnitude > 0.1 then
-                        local moveStep = flatDir.Unit * FARM_MOVE_SPEED
-                        local newPos = rootPos + moveStep
-                        newPos = Vector3.new(newPos.X, destY, newPos.Z)
+                    if dir.Magnitude > 0.1 then
+                        local moveDir = dir.Unit
                         
-                        -- Применяем CFrame с поворотом в направлении движения
-                        root.CFrame = CFrame.lookAt(newPos, newPos + flatDir)
-                        resetVelocity(root)
+                        -- Скорость из слайдера Speed
+                        local speed = Flags.Speed
+                        local moveStep = speed * dt
+                        
+                        -- Ограничиваем шаг чтобы не перепрыгивать точки
+                        if moveStep > dist then
+                            moveStep = dist
+                        end
+                        
+                        -- Новая позиция
+                        local newX = rootPos.X + moveDir.X * moveStep
+                        local newZ = rootPos.Z + moveDir.Z * moveStep
+                        
+                        -- Y - держим на земле через humanoid
+                        local newY = rootPos.Y  -- сохраняем текущий Y
+                        
+                        -- Перемещаем через CFrame с поворотом в направлении движения
+                        local newPos = Vector3.new(newX, newY, newZ)
+                        local lookTarget = newPos + moveDir
+                        
+                        root.CFrame = CFrame.lookAt(newPos, lookTarget)
+                        
+                        -- Сбрасываем горизонтальную скорость чтобы не было скольжения
+                        local vel = root.AssemblyLinearVelocity
+                        root.AssemblyLinearVelocity = Vector3.new(0, vel.Y, 0)
                     end
                 end
             else
@@ -648,14 +668,9 @@ task.spawn(function()
             end
 
             -- Статус
-            local polCur, polMax = getPollenStats()
-            if not polCur then polCur, polMax = getPollenFromGui() end
-            local polStr = polCur and polMax
-                and (" | " .. tostring(polCur) .. "/" .. tostring(polMax))
-                or ""
             local modeIcon = currentMode == "token" and "T" or "P"
             local ptInfo = (" [%d/%d]"):format(snakeIndex, #snakePoints)
-            setStatus(("[%s] %s%s%s"):format(modeIcon, SelectedField, ptInfo, polStr))
+            setStatus(("[%s] %s%s"):format(modeIcon, SelectedField, ptInfo))
         end)
     end
 end)
@@ -678,7 +693,7 @@ task.spawn(function()
 end)
 
 -- ============================================================
---   Auto Dig
+--   Auto Dig (кликает левой кнопкой мыши)
 -- ============================================================
 
 task.spawn(function()
@@ -686,7 +701,7 @@ task.spawn(function()
         if Flags.AutoDig and Flags.AutoFarm and not isConverting then
             pcall(function()
                 VIM:SendMouseButtonEvent(0, 0, 0, true,  game, 0)
-                task.wait(0.04)
+                task.wait(0.03)
                 VIM:SendMouseButtonEvent(0, 0, 0, false, game, 0)
             end)
         end
@@ -737,7 +752,7 @@ task.spawn(function()
 end)
 
 -- ============================================================
---   CFrame Speed (для ручного движения, НЕ влияет на автофарм)
+--   CFrame Speed (для РУЧНОГО движения когда автофарм ВЫКЛЮЧЕН)
 -- ============================================================
 
 local speedConnection = nil
@@ -747,7 +762,7 @@ local function startCFrameSpeed()
     
     speedConnection = RunService.Heartbeat:Connect(function(dt)
         if not Flags.CFrameSpeed then return end
-        if Flags.AutoFarm then return end  -- Не работает при автофарме
+        if Flags.AutoFarm then return end  -- При автофарме скорость уже применяется в основном цикле
         
         pcall(function()
             local _, hum, root = getCharParts()
@@ -797,7 +812,7 @@ startCFrameSpeed()
 -- ============================================================
 
 local Window = Rayfield:CreateWindow({
-    Name              = "JanusBSS v18.3",
+    Name              = "JanusBSS v19.0",
     LoadingTitle      = "JanusBSS",
     LoadingSubtitle   = "Snake + AutoConvert",
     ConfigurationSaving = { Enabled = false },
@@ -812,6 +827,7 @@ MainTab:CreateToggle({
     Name = "AutoFarm (Snake)", CurrentValue = false,
     Callback = function(v)
         Flags.AutoFarm = v
+        lastFarmTime = time()
         if not v then
             clearFarmState()
         else
@@ -839,7 +855,7 @@ MainTab:CreateToggle({
 })
 
 MainTab:CreateSlider({
-    Name = "Speed", Range = {16, 150}, Increment = 1, CurrentValue = 48,
+    Name = "Speed", Range = {16, 200}, Increment = 1, CurrentValue = 48,
     Callback = function(v) Flags.Speed = v end,
 })
 
@@ -938,7 +954,7 @@ end)
 -- ============================================================
 
 Rayfield:Notify({
-    Title    = "JanusBSS v18.3",
+    Title    = "JanusBSS v19.0",
     Content  = "Snake + AutoConvert loaded!",
     Duration = 4,
 })

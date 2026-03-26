@@ -1,14 +1,14 @@
 -- ════════════════════════════════════════════════
 --   BSS ULTIMATE FARM  |  Final Version
 -- ════════════════════════════════════════════════
-local Players        = game:GetService("Players")
-local RunService     = game:GetService("RunService")
+local Players           = game:GetService("Players")
+local RunService        = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService   = game:GetService("TweenService")
-local VIM            = game:GetService("VirtualInputManager")
+local TweenService      = game:GetService("TweenService")
+local VIM               = game:GetService("VirtualInputManager")
 
-local Player  = Players.LocalPlayer
-local PGui    = Player.PlayerGui
+local Player = Players.LocalPlayer
+local PGui   = Player.PlayerGui
 
 -- ─── Flags ───────────────────────────────────────
 local Flags = {
@@ -34,7 +34,7 @@ end
 
 local R = {
     ToolClick = findR("toolClick"),            -- InvokeServer() — копание
-    Actives   = findR("PlayerActivesCommand"), -- InvokeServer("Use", slot)
+    Actives   = findR("PlayerActivesCommand"), -- InvokeServer("Use", slot) — предметы
 }
 
 -- ─── Персонаж ────────────────────────────────────
@@ -87,19 +87,71 @@ local function getPollenPct()
     return ok and v or 0
 end
 
--- ─── Tween Teleport ──────────────────────────────
--- Скорость = скорость персонажа × множитель из слайдера
+-- ─── Tween Teleport (для конвертации) ────────────
 local curTween = nil
 local function tweenTo(pos)
     if not HRP then return end
     if curTween then curTween:Cancel() end
-    local dist      = (HRP.Position - pos).Magnitude
-    local moveSpeed = (Hum and Hum.WalkSpeed or 16) * (Flags.CFrameSpeed / 16)
-    local t = TweenInfo.new(math.max(dist / moveSpeed, 0.05), Enum.EasingStyle.Linear)
+    local dist = (HRP.Position - pos).Magnitude
+    -- скорость = прямо из слайдера (studs/s)
+    local t = TweenInfo.new(math.max(dist / Flags.CFrameSpeed, 0.05), Enum.EasingStyle.Linear)
     curTween = TweenService:Create(HRP, t, {CFrame = CFrame.new(pos)})
     curTween:Play()
     curTween.Completed:Wait()
     curTween = nil
+end
+
+-- ─── Поиск токенов в workspace ───────────────────
+-- Ищем ВСЕ объекты в радиусе поля (без фильтра по имени)
+-- Сканируем: workspace напрямую + один уровень вложенных папок/моделей
+local _tokenCache     = {}
+local _tokenCacheTime = 0
+
+local function getTokensInField()
+    if not Flags.FieldPos then return {} end
+    local now = os.clock()
+    if now - _tokenCacheTime < 0.25 then return _tokenCache end
+    _tokenCacheTime = now
+    _tokenCache = {}
+
+    local fp = Flags.FieldPos
+    local r  = Flags.FieldRadius
+
+    local function checkObj(obj)
+        -- Пропускаем служебные объекты (terrain, camera, baseplate и т.д.)
+        if obj:IsA("Terrain") or obj:IsA("Camera") then return end
+        -- Пропускаем сам персонаж
+        if obj == Char then return end
+        -- Пропускаем других игроков
+        if Players:GetPlayerFromCharacter(obj) then return end
+
+        local pos
+        if obj:IsA("BasePart") then
+            pos = obj.Position
+        elseif obj:IsA("Model") and obj.PrimaryPart then
+            pos = obj.PrimaryPart.Position
+        end
+
+        if pos then
+            local dx = pos.X - fp.X
+            local dz = pos.Z - fp.Z
+            if (dx*dx + dz*dz) <= r*r then
+                table.insert(_tokenCache, pos)
+            end
+        end
+    end
+
+    for _, child in ipairs(workspace:GetChildren()) do
+        checkObj(child)
+        -- Заглядываем на один уровень в папки/модели
+        if child:IsA("Folder") or child:IsA("Model") then
+            for _, obj in ipairs(child:GetChildren()) do
+                checkObj(obj)
+            end
+        end
+    end
+
+    return _tokenCache
 end
 
 -- ════════════════════════════════════════════════
@@ -111,9 +163,9 @@ local Win = Rayfield:CreateWindow({
     ConfigurationSaving = {Enabled = false},
 })
 
-local TFarm  = Win:CreateTab("⚙ Farm",       4483362458)
-local TItem  = Win:CreateTab("🎒 Items",     4483362458)
-local TPos   = Win:CreateTab("📍 Positions", 4483362458)
+local TFarm = Win:CreateTab("⚙ Farm",       4483362458)
+local TItem = Win:CreateTab("🎒 Items",     4483362458)
+local TPos  = Win:CreateTab("📍 Positions", 4483362458)
 
 -- Status + Pollen display
 local ParaStatus = TFarm:CreateParagraph({Title="Status", Content="● Idle"})
@@ -190,33 +242,35 @@ task.spawn(function()
 end)
 
 -- ════════════════════════════════════════════════
---   ЛОГИКА
+--   ЛОГИКА  (каждый модуль независим)
 -- ════════════════════════════════════════════════
 
--- 1. AUTO DIG — toolClick:InvokeServer()
+-- ── 1. AUTO DIG ──────────────────────────────────
+-- Независим от всего. Просто вызывает toolClick каждые 0.1с.
 task.spawn(function()
     while task.wait(0.1) do
-        if Flags.AutoDig and not isConverting and R.ToolClick then
+        if Flags.AutoDig and R.ToolClick then
             pcall(function() R.ToolClick:InvokeServer() end)
         end
     end
 end)
 
--- 2. AUTO ITEM — слоты 1–7, скорость строго 0.7с
+-- ── 2. AUTO ITEM ─────────────────────────────────
+-- Независим от всего. Скорость строго 0.7с, слоты 1–7.
 task.spawn(function()
-    while true do
-        task.wait(0.7)
-        if Flags.AutoItem and not isConverting and R.Actives then
+    while task.wait(0.7) do
+        if Flags.AutoItem and R.Actives then
             pcall(function() R.Actives:InvokeServer("Use", Flags.ItemSlot) end)
         end
     end
 end)
 
--- 3. AUTO CONVERT — работает БЕЗ AutoFarm
+-- ── 3. AUTO CONVERT ──────────────────────────────
+-- Независим от AutoFarm. Возвращается на поле только если AutoFarm включён.
 task.spawn(function()
     while task.wait(0.4) do
         if not Flags.AutoConvert then continue end
-        if not Flags.HivePos or not Flags.FieldPos then continue end
+        if not Flags.HivePos then continue end
         if isConverting then continue end
         if getPollenPct() < 99 then continue end
 
@@ -226,12 +280,13 @@ task.spawn(function()
         -- Летим к улью
         tweenTo(Flags.HivePos)
 
+        -- Жмём E для подтверждения конвертации
         task.wait(0.3)
         VIM:SendKeyEvent(true,  Enum.KeyCode.E, false, game)
         task.wait(0.15)
         VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
 
-        -- Ждём конвертацию (таймаут 25с)
+        -- Ждём пока пыльца сконвертируется (таймаут 25с)
         local waited = 0
         repeat
             task.wait(0.3)
@@ -248,44 +303,31 @@ task.spawn(function()
     end
 end)
 
--- 4. ДВИЖЕНИЕ ПО ПОЛЮ — скорость = WalkSpeed персонажа × множитель слайдера
+-- ── 4. AUTO FARM (движение по полю) ──────────────
+-- Независим от AutoConvert/AutoDig/AutoItem.
+-- Скорость = Flags.CFrameSpeed (studs/s), чистое значение без привязки к WalkSpeed.
+-- Если токенов нет — НЕ блокируем игрока (ждём появления).
 RunService.Heartbeat:Connect(function(dt)
-    if not Flags.AutoFarm or isConverting then return end
+    if not Flags.AutoFarm then return end
     if not HRP or not Hum or Hum.Health <= 0 then return end
     if not Flags.FieldPos then return end
 
+    -- Ищем ближайший токен в радиусе поля
+    local tokens   = getTokensInField()
     local target   = nil
     local bestDist = math.huge
 
-    local colFolder = workspace:FindFirstChild("Collectibles")
-                   or workspace:FindFirstChild("Tokens")
-                   or workspace
-
-    for _, obj in ipairs(colFolder:GetChildren()) do
-        -- Только токены способностей
-        local name = obj.Name
-        if not (name:find("Ability") or name == "AbilityToken") then continue end
-
-        local pos
-        if obj:IsA("BasePart") then
-            pos = obj.Position
-        elseif obj:IsA("Model") and obj.PrimaryPart then
-            pos = obj.PrimaryPart.Position
-        end
-        if pos then
-            local flat = Vector3.new(pos.X - Flags.FieldPos.X, 0, pos.Z - Flags.FieldPos.Z)
-            if flat.Magnitude <= Flags.FieldRadius then
-                local d = (Vector3.new(pos.X,0,pos.Z) - Vector3.new(HRP.Position.X,0,HRP.Position.Z)).Magnitude
-                if d < bestDist then
-                    bestDist = d
-                    target   = pos
-                end
-            end
+    local hrpXZ = Vector3.new(HRP.Position.X, 0, HRP.Position.Z)
+    for _, pos in ipairs(tokens) do
+        local d = (Vector3.new(pos.X, 0, pos.Z) - hrpXZ).Magnitude
+        if d < bestDist then
+            bestDist = d
+            target   = pos
         end
     end
 
-    -- Нет токенов → идём в центр поля
-    target = target or Flags.FieldPos
+    -- Нет токенов → не двигаемся (игрок свободен)
+    if not target then return end
 
     local pPos    = HRP.Position
     local dx      = target.X - pPos.X
@@ -293,20 +335,19 @@ RunService.Heartbeat:Connect(function(dt)
     local flatDst = math.sqrt(dx*dx + dz*dz)
 
     if flatDst > 1.5 then
-        local inv = 1 / flatDst
-        -- Скорость CFrame масштабируется со скоростью персонажа
-        local moveSpeed = (Hum.WalkSpeed or 16) * (Flags.CFrameSpeed / 16)
-        local step      = math.min(moveSpeed * dt, flatDst)
-        local nx        = pPos.X + dx * inv * step
-        local nz        = pPos.Z + dz * inv * step
+        local inv  = 1 / flatDst
+        -- Скорость строго из слайдера (studs/s), работает при любом состоянии персонажа
+        local step = math.min(Flags.CFrameSpeed * dt, flatDst)
+        local nx   = pPos.X + dx * inv * step
+        local nz   = pPos.Z + dz * inv * step
 
-        -- Y не трогаем — прыжки и полёт работают корректно
+        -- Y не трогаем — прыжок, полёт и парашют работают корректно
         HRP.CFrame = CFrame.lookAt(
             Vector3.new(nx, pPos.Y, nz),
             Vector3.new(target.X, pPos.Y, target.Z)
         )
 
-        -- Гасим только горизонтальную инерцию
+        -- Гасим только горизонтальную инерцию, вертикальную сохраняем
         local vy = HRP.AssemblyLinearVelocity.Y
         HRP.AssemblyLinearVelocity = Vector3.new(0, vy, 0)
     end

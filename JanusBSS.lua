@@ -11,6 +11,30 @@ local VIM               = game:GetService("VirtualInputManager")
 local Player  = Players.LocalPlayer
 local PGui    = Player.PlayerGui
 
+-- ─── Debug Log ──────────────────────────────────
+local LOG_MAX = 200
+local _logBuffer = {}
+
+local function debugLog(msg)
+    local ts = os.date("%H:%M:%S")
+    local line = ("[%s] %s"):format(ts, tostring(msg))
+    table.insert(_logBuffer, line)
+    if #_logBuffer > LOG_MAX then
+        table.remove(_logBuffer, 1)
+    end
+    warn("[BSS] " .. msg)
+end
+
+local function saveLog()
+    local ok, err = pcall(function()
+        local content = table.concat(_logBuffer, "\n")
+        local filename = "bss_debug_log.txt"
+        writefile(filename, content)
+        return filename
+    end)
+    return ok, err
+end
+
 -- ─── Конфиг ──────────────────────────────────────
 local CFG = {
     AutoFarm    = false,
@@ -33,7 +57,11 @@ local CFG = {
 -- ─── Ремоты ──────────────────────────────────────
 local function findRemote(name)
     local r = ReplicatedStorage:FindFirstChild(name, true)
-    if not r then warn("[BSS] Remote not found: " .. name) end
+    if r then
+        debugLog("Remote OK: " .. name .. " (" .. r.ClassName .. ")")
+    else
+        debugLog("⚠ Remote NOT FOUND: " .. name)
+    end
     return r
 end
 
@@ -120,6 +148,9 @@ task.spawn(function()
             end
         end
 
+        if #result ~= #_tokCache then
+            debugLog("Tokens found: " .. #result .. " (radius " .. CFG.FieldRadius .. ")")
+        end
         _tokCache = result
     end
 end)
@@ -132,9 +163,10 @@ local Win = Rayfield:CreateWindow({
     ConfigurationSaving = { Enabled = false },
 })
 
-local TFarm = Win:CreateTab("⚙ Farm",        4483362458)
-local TItem = Win:CreateTab("🎒 Items",      4483362458)
-local TPos  = Win:CreateTab("📍 Positions",  4483362458)
+local TFarm  = Win:CreateTab("⚙ Farm",        4483362458)
+local TItem  = Win:CreateTab("🎒 Items",      4483362458)
+local TPos   = Win:CreateTab("📍 Positions",  4483362458)
+local TDebug = Win:CreateTab("🐛 Debug",      4483362458)
 
 local ParaStatus = TFarm:CreateParagraph({ Title = "Status", Content = "● Idle" })
 local ParaPollen = TFarm:CreateParagraph({ Title = "Pollen", Content = "0.0%" })
@@ -228,6 +260,36 @@ TPos:CreateButton({ Name = "🗑 Сбросить точки", Callback = functi
     Rayfield:Notify({ Title = "Сброс", Content = "Точки очищены", Duration = 3 })
 end })
 
+-- ── Debug tab ──
+TDebug:CreateSection("Логирование")
+
+local DebugPara = TDebug:CreateParagraph({ Title = "Лог", Content = "Последние записи появятся здесь" })
+
+TDebug:CreateButton({ Name = "💾 Сохранить лог (.txt)", Callback = function()
+    local ok, err = saveLog()
+    if ok then
+        Rayfield:Notify({ Title = "✅ Лог сохранён", Content = "Файл: workspace/bss_debug_log.txt\nСтрок: " .. #_logBuffer, Duration = 5 })
+        debugLog("Лог сохранён в bss_debug_log.txt (" .. #_logBuffer .. " строк)")
+    else
+        Rayfield:Notify({ Title = "❌ Ошибка", Content = tostring(err), Duration = 5 })
+    end
+end })
+
+TDebug:CreateButton({ Name = "🗑 Очистить лог", Callback = function()
+    _logBuffer = {}
+    Rayfield:Notify({ Title = "🗑 Очищено", Content = "Лог очищен", Duration = 3 })
+end })
+
+TDebug:CreateButton({ Name = "📋 Показать последние 10 записей", Callback = function()
+    local start = math.max(1, #_logBuffer - 9)
+    local lines = {}
+    for i = start, #_logBuffer do
+        table.insert(lines, _logBuffer[i])
+    end
+    local txt = #lines > 0 and table.concat(lines, "\n") or "Лог пуст"
+    DebugPara:Set({ Title = "Лог (последние " .. #lines .. ")", Content = txt })
+end })
+
 -- Обновление поллена
 task.spawn(function()
     while task.wait(0.8) do
@@ -296,6 +358,7 @@ task.spawn(function()
         if getPollen() < 99 then continue end
 
         _converting = true
+        debugLog("Convert START — pollen: " .. ("%.1f%%"):format(getPollen()))
         setStatus("● Converting...")
 
         pcall(function()
@@ -329,6 +392,7 @@ task.spawn(function()
         end
 
         _converting = false
+        debugLog("Convert END — pollen: " .. ("%.1f%%"):format(getPollen()))
         setStatus(CFG.AutoFarm and "● Farming..." or (CFG.AutoConvert and "● Waiting..." or "● Idle"))
     end
 end)
@@ -381,6 +445,7 @@ RunService.Heartbeat:Connect(function(dt)
         HRP.AssemblyLinearVelocity = Vector3.new(0, vy, 0)
     else
         -- Рядом с токеном — пинаем оба ремота для сбора
+        debugLog("Token reached! Firing remotes...")
         pcall(function()
             if R.AbilityEvent then R.AbilityEvent:FireServer() end
         end)
@@ -391,4 +456,5 @@ RunService.Heartbeat:Connect(function(dt)
 end)
 
 -- ════════════════════════════════════════════════════
-warn("[BSS] ✅ Скрипт загружен! v7 — точный фарм токенов")
+debugLog("✅ Скрипт загружен! v8 — debug система")
+debugLog("Remotes: ToolClick=" .. tostring(R.ToolClick ~= nil) .. ", AbilityEvent=" .. tostring(R.AbilityEvent ~= nil) .. ", TokenEvent=" .. tostring(R.TokenEvent ~= nil))

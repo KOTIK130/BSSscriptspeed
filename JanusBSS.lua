@@ -127,18 +127,16 @@ local function getPollen()
 end
 
 -- ─── Сканирование токенов ─────────────────────────
--- Токены в BSS = маленькие Part (Size < 2) + CanCollide=false + прямые дети workspace
--- Сбор через firetouchinterest (касание), не ремоты
+-- Токены в BSS лежат в workspace.Debris.Tokens
+-- Личные = Name == Player.Name, общие = Name == "All"
 local _tokCache = {}      -- {Part instances}
 local _tokBlacklist = {}  -- {[Part] = tick()} — кулдаун 3 сек
+local _playerName = Player.Name
 
 task.spawn(function()
-    while task.wait(1) do
+    while task.wait(0.5) do
         if not CFG.AutoFarm then continue end
-        if not CFG.FieldPos then continue end
 
-        local fp = CFG.FieldPos
-        local rr = CFG.FieldRadius * CFG.FieldRadius
         local result = {}
         local now = tick()
 
@@ -147,34 +145,36 @@ task.spawn(function()
             if now - t > 3 then _tokBlacklist[part] = nil end
         end
 
-        local totalParts = 0
-        local matchSize  = 0
-        local matchCollide = 0
-        local inRadius   = 0
+        local totalTokens = 0
+        local myTokens = 0
 
-        for _, child in ipairs(workspace:GetDescendants()) do
-            if child:IsA("BasePart") and child.Name == "Part" then
-                totalParts += 1
-                if child.Size.X < 2 and child.Size.Y < 2 and child.Size.Z < 2 then
-                    matchSize += 1
-                    if not child.CanCollide then
-                        matchCollide += 1
+        local ok, err = pcall(function()
+            local debrisTokens = workspace:FindFirstChild("Debris")
+            if not debrisTokens then return end
+            debrisTokens = debrisTokens:FindFirstChild("Tokens")
+            if not debrisTokens then return end
+
+            for _, child in ipairs(debrisTokens:GetChildren()) do
+                if child:IsA("BasePart") then
+                    totalTokens += 1
+                    -- Только наши токены (именуются по игроку) или общие ("All")
+                    if child.Name == _playerName or child.Name == "All" then
+                        myTokens += 1
                         if not _tokBlacklist[child] then
-                            local pos = child.Position
-                            local dx = pos.X - fp.X; local dz = pos.Z - fp.Z
-                            if dx*dx + dz*dz <= rr then
-                                inRadius += 1
-                                table.insert(result, child)
-                            end
+                            table.insert(result, child)
                         end
                     end
                 end
             end
+        end)
+
+        if not ok then
+            debugLog("Scan ERROR: " .. tostring(err))
         end
 
         -- Логируем каждые 10 секунд или при изменении
         if #result ~= #_tokCache or (tick() % 10 < 1.5) then
-            debugLog("Scan: total=" .. totalParts .. " small=" .. matchSize .. " noCollide=" .. matchCollide .. " inField=" .. inRadius)
+            debugLog("Tokens: total=" .. totalTokens .. " mine=" .. myTokens .. " available=" .. #result)
         end
         _tokCache = result
     end
@@ -423,78 +423,112 @@ task.spawn(function()
 end)
 
 -- ── 5. AUTO FARM ──────────────────────────────────
--- Heartbeat читает готовый кэш, движется к ближайшему токену
--- Сбор через firetouchinterest (симуляция Touched)
-local _hasFTI = typeof(firetouchinterest) == "function"
-debugLog("firetouchinterest: " .. tostring(_hasFTI))
+-- Tween к ближайшему токену + сбор касанием (HRP.Touched)
+local _currentTween = nil
+local _farmTouched = nil  -- connection
 
-RunService.Heartbeat:Connect(function(dt)
-    if not CFG.AutoFarm then return end
-    if _converting then return end
-    if not HRP or not Hum or Hum.Health <= 0 then return end
-    if not CFG.FieldPos then return end
-
-    local tokens = _tokCache
-    if #tokens == 0 then return end
-
-    -- Найти ближайший токен (теперь Part instance)
-    local target = nil
-    local bestD  = math.huge
-    local px = HRP.Position.X
-    local pz = HRP.Position.Z
-
-    for _, part in ipairs(tokens) do
-        if part and part.Parent then
-            local pos = part.Position
-            local dx = pos.X - px
-            local dz = pos.Z - pz
-            local d  = dx * dx + dz * dz
-            if d < bestD then
-                bestD  = d
-                target = part
+-- Подключаем Touched для сбора токенов
+local function setupTouchedConnection()
+    if _farmTouched then _farmTouched:Disconnect() end
+    if not HRP then return end
+    _farmTouched = HRP.Touched:Connect(function(hit)
+        if not hit or not hit.Parent then return end
+        -- Проверяем что это токен из Debris.Tokens
+        local par = hit.Parent
+        if par and par.Name == "Tokens" and par.Parent and par.Parent.Name == "Debris" then
+            if hit.Name == _playerName or hit.Name == "All" then
+                _tokBlacklist[hit] = tick()
+                debugLog("Token collected: " .. hit.Name .. " @ " .. math.floor(hit.Position.X) .. "," .. math.floor(hit.Position.Z))
             end
         end
-    end
+    end)
+end
+setupTouchedConnection()
 
-    if not target then return end
+task.spawn(function()
+    while task.wait(0.2) do
+        if not CFG.AutoFarm then
+            if _currentTween then
+                pcall(function() _currentTween:Cancel() end)
+                _currentTween = nil
+            end
+            continue
+        end
+        if _converting then continue end
+        if not HRP or not Hum or Hum.Health <= 0 then continue end
 
-    local tPos = target.Position
-    local cur  = HRP.Position
-    local dx   = tPos.X - cur.X
-    local dz   = tPos.Z - cur.Z
-    local dist = math.sqrt(dx * dx + dz * dz)
-
-    if dist > 1 then
-        -- Двигаемся к токену
-        local inv  = 1 / dist
-        local step = math.min(CFG.FarmSpeed * dt, dist)
-        local nx   = cur.X + dx * inv * step
-        local nz   = cur.Z + dz * inv * step
-
-        HRP.CFrame = CFrame.lookAt(
-            Vector3.new(nx, cur.Y, nz),
-            Vector3.new(tPos.X, cur.Y, tPos.Z)
-        )
-
-        local vy = HRP.AssemblyLinearVelocity.Y
-        HRP.AssemblyLinearVelocity = Vector3.new(0, vy, 0)
-    else
-        -- Рядом — телепорт прямо на токен + firetouchinterest
-        HRP.CFrame = CFrame.new(tPos.X, cur.Y, tPos.Z)
-
-        if _hasFTI then
-            pcall(function()
-                firetouchinterest(HRP, target, 0)  -- Touch begin
-                firetouchinterest(HRP, target, 1)  -- Touch end
-            end)
+        -- Обновляем Touched если персонаж обновился
+        if not _farmTouched or not _farmTouched.Connected then
+            setupTouchedConnection()
         end
 
-        -- Блеклист чтобы не спамить один токен
-        _tokBlacklist[target] = tick()
-        debugLog("Token touched @ " .. math.floor(tPos.X) .. "," .. math.floor(tPos.Z) .. " | left: " .. #tokens)
+        local tokens = _tokCache
+        if #tokens == 0 then continue end
+
+        -- Найти ближайший токен
+        local target = nil
+        local bestD  = math.huge
+        local px = HRP.Position.X
+        local pz = HRP.Position.Z
+
+        for _, part in ipairs(tokens) do
+            if part and part.Parent then
+                local pos = part.Position
+                local dx = pos.X - px
+                local dz = pos.Z - pz
+                local d  = dx * dx + dz * dz
+                if d < bestD then
+                    bestD  = d
+                    target = part
+                end
+            end
+        end
+
+        if not target or not target.Parent then continue end
+
+        local tPos = target.Position
+        local cur  = HRP.Position
+        local dist = (Vector3.new(tPos.X, 0, tPos.Z) - Vector3.new(cur.X, 0, cur.Z)).Magnitude
+
+        if dist < 1 then
+            _tokBlacklist[target] = tick()
+            continue
+        end
+
+        -- Tween к токену
+        pcall(function()
+            local tweenTime = math.max(dist / CFG.FarmSpeed, 0.05)
+            local ti = TweenInfo.new(tweenTime, Enum.EasingStyle.Linear)
+            local goalCF = CFrame.new(tPos.X, cur.Y, tPos.Z)
+
+            if _currentTween then
+                _currentTween:Cancel()
+            end
+
+            _currentTween = TweenService:Create(HRP, ti, { CFrame = goalCF })
+            _currentTween:Play()
+            _currentTween.Completed:Wait()
+            _currentTween = nil
+        end)
+
+        debugLog("Tween to token @ " .. math.floor(tPos.X) .. "," .. math.floor(tPos.Z) .. " dist=" .. math.floor(dist))
     end
 end)
 
 -- ════════════════════════════════════════════════════
-debugLog("✅ Скрипт загружен! v8.2 — GetDescendants + debug scan")
-debugLog("Remotes: ToolClick=" .. tostring(R.ToolClick ~= nil) .. ", AbilityEvent=" .. tostring(R.AbilityEvent ~= nil) .. ", TokenEvent=" .. tostring(R.TokenEvent ~= nil))
+debugLog("✅ Скрипт загружен! v9 — Debris.Tokens + Tween + Touched")
+debugLog("Remotes: ToolClick=" .. tostring(R.ToolClick ~= nil))
+debugLog("Player name for tokens: " .. _playerName)
+
+-- Проверяем наличие Debris.Tokens
+pcall(function()
+    local debris = workspace:FindFirstChild("Debris")
+    debugLog("workspace.Debris: " .. tostring(debris ~= nil))
+    if debris then
+        local tokens = debris:FindFirstChild("Tokens")
+        debugLog("workspace.Debris.Tokens: " .. tostring(tokens ~= nil))
+        if tokens then
+            debugLog("Tokens children count: " .. #tokens:GetChildren())
+        end
+    end
+end)

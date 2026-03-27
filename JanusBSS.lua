@@ -127,9 +127,10 @@ local function getPollen()
 end
 
 -- ─── Сканирование токенов ─────────────────────────
--- Только "Part" (CanCollide=false) — прямые дети workspace
--- После телепорта к токену → FireServer на оба ремота для сбора
-local _tokCache = {}
+-- Токены в BSS = маленькие Part (Size < 2) + CanCollide=false + прямые дети workspace
+-- Сбор через firetouchinterest (касание), не ремоты
+local _tokCache = {}      -- {Part instances}
+local _tokBlacklist = {}  -- {[Part] = tick()} — кулдаун 3 сек
 
 task.spawn(function()
     while task.wait(1) do
@@ -139,17 +140,30 @@ task.spawn(function()
         local fp = CFG.FieldPos
         local rr = CFG.FieldRadius * CFG.FieldRadius
         local result = {}
+        local now = tick()
+
+        -- Чистим старые записи из блеклиста
+        for part, t in pairs(_tokBlacklist) do
+            if now - t > 3 then _tokBlacklist[part] = nil end
+        end
 
         for _, child in ipairs(workspace:GetChildren()) do
-            if child:IsA("BasePart") and child.Name == "Part" and not child.CanCollide then
+            if child:IsA("BasePart")
+                and child.Name == "Part"
+                and not child.CanCollide
+                and child.Size.X < 2 and child.Size.Y < 2 and child.Size.Z < 2
+                and not _tokBlacklist[child]
+            then
                 local pos = child.Position
                 local dx = pos.X - fp.X; local dz = pos.Z - fp.Z
-                if dx*dx + dz*dz <= rr then table.insert(result, pos) end
+                if dx*dx + dz*dz <= rr then
+                    table.insert(result, child)
+                end
             end
         end
 
         if #result ~= #_tokCache then
-            debugLog("Tokens found: " .. #result .. " (radius " .. CFG.FieldRadius .. ")")
+            debugLog("Tokens: " .. #result .. " | blacklisted: " .. (function() local n=0 for _ in pairs(_tokBlacklist) do n+=1 end return n end)())
         end
         _tokCache = result
     end
@@ -398,7 +412,11 @@ task.spawn(function()
 end)
 
 -- ── 5. AUTO FARM ──────────────────────────────────
--- Heartbeat только читает готовый кэш — никакого сканирования
+-- Heartbeat читает готовый кэш, движется к ближайшему токену
+-- Сбор через firetouchinterest (симуляция Touched)
+local _hasFTI = typeof(firetouchinterest) == "function"
+debugLog("firetouchinterest: " .. tostring(_hasFTI))
+
 RunService.Heartbeat:Connect(function(dt)
     if not CFG.AutoFarm then return end
     if _converting then return end
@@ -408,29 +426,35 @@ RunService.Heartbeat:Connect(function(dt)
     local tokens = _tokCache
     if #tokens == 0 then return end
 
+    -- Найти ближайший токен (теперь Part instance)
     local target = nil
     local bestD  = math.huge
     local px = HRP.Position.X
     local pz = HRP.Position.Z
 
-    for _, pos in ipairs(tokens) do
-        local dx = pos.X - px
-        local dz = pos.Z - pz
-        local d  = dx * dx + dz * dz
-        if d < bestD then
-            bestD  = d
-            target = pos
+    for _, part in ipairs(tokens) do
+        if part and part.Parent then
+            local pos = part.Position
+            local dx = pos.X - px
+            local dz = pos.Z - pz
+            local d  = dx * dx + dz * dz
+            if d < bestD then
+                bestD  = d
+                target = part
+            end
         end
     end
 
     if not target then return end
 
+    local tPos = target.Position
     local cur  = HRP.Position
-    local dx   = target.X - cur.X
-    local dz   = target.Z - cur.Z
+    local dx   = tPos.X - cur.X
+    local dz   = tPos.Z - cur.Z
     local dist = math.sqrt(dx * dx + dz * dz)
 
-    if dist > 1.5 then
+    if dist > 1 then
+        -- Двигаемся к токену
         local inv  = 1 / dist
         local step = math.min(CFG.FarmSpeed * dt, dist)
         local nx   = cur.X + dx * inv * step
@@ -438,23 +462,28 @@ RunService.Heartbeat:Connect(function(dt)
 
         HRP.CFrame = CFrame.lookAt(
             Vector3.new(nx, cur.Y, nz),
-            Vector3.new(target.X, cur.Y, target.Z)
+            Vector3.new(tPos.X, cur.Y, tPos.Z)
         )
 
         local vy = HRP.AssemblyLinearVelocity.Y
         HRP.AssemblyLinearVelocity = Vector3.new(0, vy, 0)
     else
-        -- Рядом с токеном — пинаем оба ремота для сбора
-        debugLog("Token reached! Firing remotes...")
-        pcall(function()
-            if R.AbilityEvent then R.AbilityEvent:FireServer() end
-        end)
-        pcall(function()
-            if R.TokenEvent then R.TokenEvent:FireServer() end
-        end)
+        -- Рядом — телепорт прямо на токен + firetouchinterest
+        HRP.CFrame = CFrame.new(tPos.X, cur.Y, tPos.Z)
+
+        if _hasFTI then
+            pcall(function()
+                firetouchinterest(HRP, target, 0)  -- Touch begin
+                firetouchinterest(HRP, target, 1)  -- Touch end
+            end)
+        end
+
+        -- Блеклист чтобы не спамить один токен
+        _tokBlacklist[target] = tick()
+        debugLog("Token touched @ " .. math.floor(tPos.X) .. "," .. math.floor(tPos.Z) .. " | left: " .. #tokens)
     end
 end)
 
 -- ════════════════════════════════════════════════════
-debugLog("✅ Скрипт загружен! v8 — debug система")
+debugLog("✅ Скрипт загружен! v8.1 — firetouchinterest + blacklist")
 debugLog("Remotes: ToolClick=" .. tostring(R.ToolClick ~= nil) .. ", AbilityEvent=" .. tostring(R.AbilityEvent ~= nil) .. ", TokenEvent=" .. tostring(R.TokenEvent ~= nil))

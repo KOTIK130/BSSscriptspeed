@@ -1,6 +1,5 @@
 -- ════════════════════════════════════════════════════
---   BSS ULTIMATE FARM  v5  |  Полностью новый скрипт
---   Каждый модуль НЕЗАВИСИМ
+--   BSS ULTIMATE FARM  v6  |  Все модули независимы
 -- ════════════════════════════════════════════════════
 
 local Players           = game:GetService("Players")
@@ -14,24 +13,19 @@ local PGui    = Player.PlayerGui
 
 -- ─── Конфиг ──────────────────────────────────────
 local CFG = {
-    -- AutoFarm
     AutoFarm    = false,
     FieldPos    = nil,
     FieldRadius = 45,
-    FarmSpeed   = 60,   -- studs/s для CFrame движения
+    FarmSpeed   = 60,
 
-    -- AutoDig
     AutoDig     = false,
 
-    -- AutoConvert
     AutoConvert = false,
     HivePos     = nil,
 
-    -- AutoItem
     AutoItem    = false,
     ItemSlot    = 1,
 
-    -- SpeedHack
     SpeedHack   = false,
     WalkSpeed   = 70,
 }
@@ -45,8 +39,6 @@ end
 
 local R = {
     ToolClick = findRemote("toolClick"),
-    Actives   = findRemote("PlayerActivesCommand"),
-    AbilityEv = findRemote("playerAbilityEvent") or findRemote("tokenEvent"),
 }
 
 -- ─── Персонаж ────────────────────────────────────
@@ -105,57 +97,47 @@ local function getPollen()
 end
 
 -- ─── Сканирование токенов ─────────────────────────
--- Ищем ВСЕ небольшие объекты в радиусе поля.
--- Фильтр: BasePart/MeshPart с CanCollide=false (токены обычно без коллизий)
--- и небольшой размер (Magnitude < 10).
+-- Отдельный поток обновляет кэш каждые 1 секунду.
+-- Heartbeat просто читает готовый массив — 0 нагрузки.
 local _tokCache = {}
-local _tokTime  = 0
 
-local function scanTokens()
-    local now = os.clock()
-    if now - _tokTime < 0.5 then return _tokCache end
-    _tokTime = now
-    _tokCache = {}
+task.spawn(function()
+    while task.wait(1) do
+        if not CFG.AutoFarm then continue end
+        if not CFG.FieldPos then continue end
 
-    if not CFG.FieldPos then return _tokCache end
-    local fp = CFG.FieldPos
-    local rr = CFG.FieldRadius * CFG.FieldRadius
+        local fp = CFG.FieldPos
+        local rr = CFG.FieldRadius * CFG.FieldRadius
+        local result = {}
 
-    local function check(obj)
-        local pos
-        if (obj:IsA("BasePart") or obj:IsA("MeshPart")) then
-            -- Фильтр: без коллизий и маленький (токен)
-            if not obj.CanCollide and obj.Size.Magnitude < 12 then
-                pos = obj.Position
+        -- Сканируем потомков workspace (глубина 3)
+        for _, child in ipairs(workspace:GetChildren()) do
+            -- depth 1
+            if (child:IsA("BasePart") or child:IsA("MeshPart")) and not child.CanCollide and child.Size.Magnitude < 12 then
+                local pos = child.Position
+                local dx = pos.X - fp.X; local dz = pos.Z - fp.Z
+                if dx*dx + dz*dz <= rr then table.insert(result, pos) end
             end
-        elseif obj:IsA("Model") then
-            local pp = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
-            if pp and not pp.CanCollide and pp.Size.Magnitude < 12 then
-                pos = pp.Position
+            -- depth 2-3
+            for _, gc in ipairs(child:GetChildren()) do
+                if (gc:IsA("BasePart") or gc:IsA("MeshPart")) and not gc.CanCollide and gc.Size.Magnitude < 12 then
+                    local pos = gc.Position
+                    local dx = pos.X - fp.X; local dz = pos.Z - fp.Z
+                    if dx*dx + dz*dz <= rr then table.insert(result, pos) end
+                end
+                for _, ggc in ipairs(gc:GetChildren()) do
+                    if (ggc:IsA("BasePart") or ggc:IsA("MeshPart")) and not ggc.CanCollide and ggc.Size.Magnitude < 12 then
+                        local pos = ggc.Position
+                        local dx = pos.X - fp.X; local dz = pos.Z - fp.Z
+                        if dx*dx + dz*dz <= rr then table.insert(result, pos) end
+                    end
+                end
             end
         end
-        if pos then
-            local dx = pos.X - fp.X
-            local dz = pos.Z - fp.Z
-            if dx * dx + dz * dz <= rr then
-                table.insert(_tokCache, pos)
-            end
-        end
+
+        _tokCache = result
     end
-
-    -- Сканируем только прямые потомки workspace (depth 1–3)
-    for _, child in ipairs(workspace:GetChildren()) do
-        check(child)
-        for _, gc in ipairs(child:GetChildren()) do
-            check(gc)
-            for _, ggc in ipairs(gc:GetChildren()) do
-                check(ggc)
-            end
-        end
-    end
-
-    return _tokCache
-end
+end)
 
 -- ─── UI ──────────────────────────────────────────
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
@@ -169,7 +151,6 @@ local TFarm = Win:CreateTab("⚙ Farm",        4483362458)
 local TItem = Win:CreateTab("🎒 Items",      4483362458)
 local TPos  = Win:CreateTab("📍 Positions",  4483362458)
 
--- Статус + поллен
 local ParaStatus = TFarm:CreateParagraph({ Title = "Status", Content = "● Idle" })
 local ParaPollen = TFarm:CreateParagraph({ Title = "Pollen", Content = "0.0%" })
 
@@ -249,7 +230,7 @@ end })
 TPos:CreateButton({ Name = "📍 Set Field  (встань в центр поля)", Callback = function()
     if not HRP then return end
     CFG.FieldPos = HRP.Position
-    _tokCache = {}; _tokTime = 0
+    _tokCache = {}
     local p = CFG.FieldPos
     FieldPara:Set({ Title = "Field ✓", Content = ("X:%.1f  Y:%.1f  Z:%.1f"):format(p.X, p.Y, p.Z) })
     Rayfield:Notify({ Title = "Поле ✓", Content = "Точка сохранена", Duration = 3 })
@@ -276,7 +257,6 @@ end)
 -- ════════════════════════════════════════════════════
 
 -- ── 1. SPEED HACK ─────────────────────────────────
--- Каждые 0.5с принудительно держит WalkSpeed
 task.spawn(function()
     while task.wait(0.5) do
         if CFG.SpeedHack and Hum then
@@ -286,7 +266,6 @@ task.spawn(function()
 end)
 
 -- ── 2. AUTO DIG ───────────────────────────────────
--- Независим, работает всегда когда включён
 task.spawn(function()
     while task.wait(0.1) do
         if CFG.AutoDig and R.ToolClick then
@@ -296,25 +275,33 @@ task.spawn(function()
 end)
 
 -- ── 3. AUTO ITEM ──────────────────────────────────
--- Независим, строго 0.7с, слоты 1–7
+-- Симулируем нажатие клавиш 1–7 через VirtualInputManager
+local SlotKeys = {
+    [1] = Enum.KeyCode.One,
+    [2] = Enum.KeyCode.Two,
+    [3] = Enum.KeyCode.Three,
+    [4] = Enum.KeyCode.Four,
+    [5] = Enum.KeyCode.Five,
+    [6] = Enum.KeyCode.Six,
+    [7] = Enum.KeyCode.Seven,
+}
+
 task.spawn(function()
     while task.wait(0.7) do
-        if CFG.AutoItem and R.Actives then
-            pcall(function()
-                -- Пробуем оба варианта вызова
-                if R.Actives:IsA("RemoteFunction") then
-                    R.Actives:InvokeServer(CFG.ItemSlot)
-                else
-                    R.Actives:FireServer(CFG.ItemSlot)
-                end
-            end)
+        if CFG.AutoItem then
+            local key = SlotKeys[CFG.ItemSlot]
+            if key then
+                pcall(function()
+                    VIM:SendKeyEvent(true,  key, false, game)
+                    task.wait(0.05)
+                    VIM:SendKeyEvent(false, key, false, game)
+                end)
+            end
         end
     end
 end)
 
 -- ── 4. AUTO CONVERT ───────────────────────────────
--- Независим от AutoFarm. При 99% поллена идёт на улей,
--- конвертирует, возвращается на поле (если поле установлено)
 local _converting = false
 task.spawn(function()
     while task.wait(0.3) do
@@ -326,7 +313,6 @@ task.spawn(function()
         _converting = true
         setStatus("● Converting...")
 
-        -- Идём на улей через TweenService
         pcall(function()
             if not HRP then return end
             local dist = (HRP.Position - CFG.HivePos).Magnitude
@@ -338,17 +324,14 @@ task.spawn(function()
 
         task.wait(0.3)
 
-        -- Конвертируем (клавиша E)
         VIM:SendKeyEvent(true,  Enum.KeyCode.E, false, game)
         task.wait(0.15)
         VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
 
-        -- Ждём пока поллен упадёт
         local waited = 0
         repeat task.wait(0.3); waited += 0.3
         until getPollen() < 3 or waited > 30
 
-        -- Возвращаемся на поле если оно задано
         if CFG.FieldPos then
             pcall(function()
                 if not HRP then return end
@@ -366,18 +349,18 @@ task.spawn(function()
 end)
 
 -- ── 5. AUTO FARM ──────────────────────────────────
--- Движение по полю через CFrame каждый кадр.
--- Пауза только при конвертации (чтобы не конфликтовали CFrame).
+-- Heartbeat только читает готовый кэш — никакого сканирования
 RunService.Heartbeat:Connect(function(dt)
     if not CFG.AutoFarm then return end
-    if _converting then return end  -- физическая необходимость, не зависимость
+    if _converting then return end
     if not HRP or not Hum or Hum.Health <= 0 then return end
     if not CFG.FieldPos then return end
 
-    local tokens  = scanTokens()
-    local target  = nil
-    local bestD   = math.huge
+    local tokens = _tokCache
+    if #tokens == 0 then return end
 
+    local target = nil
+    local bestD  = math.huge
     local px = HRP.Position.X
     local pz = HRP.Position.Z
 
@@ -409,11 +392,10 @@ RunService.Heartbeat:Connect(function(dt)
             Vector3.new(target.X, cur.Y, target.Z)
         )
 
-        -- Убираем горизонтальный дрейф от физики
         local vy = HRP.AssemblyLinearVelocity.Y
         HRP.AssemblyLinearVelocity = Vector3.new(0, vy, 0)
     end
 end)
 
 -- ════════════════════════════════════════════════════
-warn("[BSS] ✅ Скрипт загружен! v5 — все модули независимы")
+warn("[BSS] ✅ Скрипт загружен! v6 — все модули независимы")

@@ -147,23 +147,34 @@ task.spawn(function()
             if now - t > 3 then _tokBlacklist[part] = nil end
         end
 
-        for _, child in ipairs(workspace:GetChildren()) do
-            if child:IsA("BasePart")
-                and child.Name == "Part"
-                and not child.CanCollide
-                and child.Size.X < 2 and child.Size.Y < 2 and child.Size.Z < 2
-                and not _tokBlacklist[child]
-            then
-                local pos = child.Position
-                local dx = pos.X - fp.X; local dz = pos.Z - fp.Z
-                if dx*dx + dz*dz <= rr then
-                    table.insert(result, child)
+        local totalParts = 0
+        local matchSize  = 0
+        local matchCollide = 0
+        local inRadius   = 0
+
+        for _, child in ipairs(workspace:GetDescendants()) do
+            if child:IsA("BasePart") and child.Name == "Part" then
+                totalParts += 1
+                if child.Size.X < 2 and child.Size.Y < 2 and child.Size.Z < 2 then
+                    matchSize += 1
+                    if not child.CanCollide then
+                        matchCollide += 1
+                        if not _tokBlacklist[child] then
+                            local pos = child.Position
+                            local dx = pos.X - fp.X; local dz = pos.Z - fp.Z
+                            if dx*dx + dz*dz <= rr then
+                                inRadius += 1
+                                table.insert(result, child)
+                            end
+                        end
+                    end
                 end
             end
         end
 
-        if #result ~= #_tokCache then
-            debugLog("Tokens: " .. #result .. " | blacklisted: " .. (function() local n=0 for _ in pairs(_tokBlacklist) do n+=1 end return n end)())
+        -- Логируем каждые 10 секунд или при изменении
+        if #result ~= #_tokCache or (tick() % 10 < 1.5) then
+            debugLog("Scan: total=" .. totalParts .. " small=" .. matchSize .. " noCollide=" .. matchCollide .. " inField=" .. inRadius)
         end
         _tokCache = result
     end
@@ -485,5 +496,5 @@ RunService.Heartbeat:Connect(function(dt)
 end)
 
 -- ════════════════════════════════════════════════════
-debugLog("✅ Скрипт загружен! v8.1 — firetouchinterest + blacklist")
+debugLog("✅ Скрипт загружен! v8.2 — GetDescendants + debug scan")
 debugLog("Remotes: ToolClick=" .. tostring(R.ToolClick ~= nil) .. ", AbilityEvent=" .. tostring(R.AbilityEvent ~= nil) .. ", TokenEvent=" .. tostring(R.TokenEvent ~= nil))

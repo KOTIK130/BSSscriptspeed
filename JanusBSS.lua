@@ -38,7 +38,9 @@ local function findRemote(name)
 end
 
 local R = {
-    ToolClick = findRemote("toolClick"),
+    ToolClick       = findRemote("toolClick"),
+    AbilityEvent    = findRemote("playerAbilityEvent"),
+    TokenEvent      = findRemote("tokenEvent"),
 }
 
 -- ─── Персонаж ────────────────────────────────────
@@ -97,17 +99,9 @@ local function getPollen()
 end
 
 -- ─── Сканирование токенов ─────────────────────────
--- Только нужные объекты: PetalPart, Fuzzball, Part, Spotlight
--- Все они — прямые дети workspace, CanCollide = false
--- НЕ фармим: Ripple (спринклер), Crosshair (визуал)
+-- Только "Part" (CanCollide=false) — прямые дети workspace
+-- После телепорта к токену → FireServer на оба ремота для сбора
 local _tokCache = {}
-
-local TOKEN_NAMES = {
-    ["PetalPart"] = true,
-    ["Fuzzball"]  = true,
-    ["Part"]      = true,
-    ["Spotlight"]  = true,
-}
 
 task.spawn(function()
     while task.wait(1) do
@@ -118,9 +112,8 @@ task.spawn(function()
         local rr = CFG.FieldRadius * CFG.FieldRadius
         local result = {}
 
-        -- Только прямые дети workspace — минимальная нагрузка
         for _, child in ipairs(workspace:GetChildren()) do
-            if child:IsA("BasePart") and TOKEN_NAMES[child.Name] and not child.CanCollide then
+            if child:IsA("BasePart") and child.Name == "Part" and not child.CanCollide then
                 local pos = child.Position
                 local dx = pos.X - fp.X; local dz = pos.Z - fp.Z
                 if dx*dx + dz*dz <= rr then table.insert(result, pos) end
@@ -386,6 +379,14 @@ RunService.Heartbeat:Connect(function(dt)
 
         local vy = HRP.AssemblyLinearVelocity.Y
         HRP.AssemblyLinearVelocity = Vector3.new(0, vy, 0)
+    else
+        -- Рядом с токеном — пинаем оба ремота для сбора
+        pcall(function()
+            if R.AbilityEvent then R.AbilityEvent:FireServer() end
+        end)
+        pcall(function()
+            if R.TokenEvent then R.TokenEvent:FireServer() end
+        end)
     end
 end)
 

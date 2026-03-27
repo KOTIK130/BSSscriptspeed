@@ -97,9 +97,17 @@ local function getPollen()
 end
 
 -- ─── Сканирование токенов ─────────────────────────
--- Отдельный поток обновляет кэш каждые 1 секунду.
--- Heartbeat просто читает готовый массив — 0 нагрузки.
+-- Только нужные объекты: PetalPart, Fuzzball, Part, Spotlight
+-- Все они — прямые дети workspace, CanCollide = false
+-- НЕ фармим: Ripple (спринклер), Crosshair (визуал)
 local _tokCache = {}
+
+local TOKEN_NAMES = {
+    ["PetalPart"] = true,
+    ["Fuzzball"]  = true,
+    ["Part"]      = true,
+    ["Spotlight"]  = true,
+}
 
 task.spawn(function()
     while task.wait(1) do
@@ -110,28 +118,12 @@ task.spawn(function()
         local rr = CFG.FieldRadius * CFG.FieldRadius
         local result = {}
 
-        -- Сканируем потомков workspace (глубина 3)
+        -- Только прямые дети workspace — минимальная нагрузка
         for _, child in ipairs(workspace:GetChildren()) do
-            -- depth 1
-            if (child:IsA("BasePart") or child:IsA("MeshPart")) and not child.CanCollide and child.Size.Magnitude < 12 then
+            if child:IsA("BasePart") and TOKEN_NAMES[child.Name] and not child.CanCollide then
                 local pos = child.Position
                 local dx = pos.X - fp.X; local dz = pos.Z - fp.Z
                 if dx*dx + dz*dz <= rr then table.insert(result, pos) end
-            end
-            -- depth 2-3
-            for _, gc in ipairs(child:GetChildren()) do
-                if (gc:IsA("BasePart") or gc:IsA("MeshPart")) and not gc.CanCollide and gc.Size.Magnitude < 12 then
-                    local pos = gc.Position
-                    local dx = pos.X - fp.X; local dz = pos.Z - fp.Z
-                    if dx*dx + dz*dz <= rr then table.insert(result, pos) end
-                end
-                for _, ggc in ipairs(gc:GetChildren()) do
-                    if (ggc:IsA("BasePart") or ggc:IsA("MeshPart")) and not ggc.CanCollide and ggc.Size.Magnitude < 12 then
-                        local pos = ggc.Position
-                        local dx = pos.X - fp.X; local dz = pos.Z - fp.Z
-                        if dx*dx + dz*dz <= rr then table.insert(result, pos) end
-                    end
-                end
             end
         end
 
@@ -288,7 +280,7 @@ local SlotKeys = {
 
 task.spawn(function()
     while task.wait(0.7) do
-        if CFG.AutoItem then
+        if CFG.AutoItem and not _converting then
             local key = SlotKeys[CFG.ItemSlot]
             if key then
                 pcall(function()
@@ -398,4 +390,4 @@ RunService.Heartbeat:Connect(function(dt)
 end)
 
 -- ════════════════════════════════════════════════════
-warn("[BSS] ✅ Скрипт загружен! v6 — все модули независимы")
+warn("[BSS] ✅ Скрипт загружен! v7 — точный фарм токенов")

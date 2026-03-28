@@ -1,6 +1,6 @@
 -- ════════════════════════════════════════════════════
---   BSS ULTIMATE FARM  |  Final v12
---   Tokens: client-sided touch collection (no remotes)
+--   BSS ULTIMATE FARM  |  Final v13
+--   Ability tokens only (ParticleEmitter filter)
 -- ════════════════════════════════════════════════════
 
 local Players           = game:GetService("Players")
@@ -39,7 +39,7 @@ local R = {
     ToolClick = findR("toolClick"),
 }
 
--- ─── Персонаж ─────────────────────────────────────
+-- ─── Персонаж ────────────────────────────────────
 local Char, HRP, Hum
 
 local function loadChar()
@@ -55,7 +55,7 @@ Player.CharacterAdded:Connect(function()
     loadChar()
 end)
 
--- ─── Pollen ───────────────────────────────────────
+-- ─── Pollen ──────────────────────────────────────
 local _pollenLabel = nil
 
 local function findPollenLabel()
@@ -68,7 +68,8 @@ local function findPollenLabel()
                 local t = (c.Text or ""):gsub("[,%s]", "")
                 local a, b = t:match("^(%d+)/(%d+)$")
                 if a and b and tonumber(b) > 100000 then
-                    _pollenLabel = c; return c
+                    _pollenLabel = c
+                    return c
                 end
             end
             local f = scan(c, d + 1)
@@ -91,12 +92,39 @@ local function getPollen()
     return ok and v or 0
 end
 
--- ─── Список токенов в поле ────────────────────────
--- Токены = части в workspace.Collectibles
--- Собираются просто физическим касанием (client-side touch)
--- Фильтр: только те что в радиусе поля
-local _tokCache   = {}
+-- ─── Фильтр токенов способностей ─────────────────
+-- Ability token = BasePart + Transparent==0 + вертикальный
+--               + ParticleEmitter (золотые искры) + Decal
+-- Обычные токены поля (пыльца/мёд) ParticleEmitter НЕ имеют
+local function isAbilityToken(obj)
+    if not obj or not obj.Parent then return false end
+    if not obj:IsA("BasePart") then return false end
+    local ok, res = pcall(function()
+        if obj.Transparency ~= 0 then return false end
+        if math.abs(obj.CFrame.YVector.Y - 1) > 0.01 then return false end
+        if not obj:FindFirstChildOfClass("ParticleEmitter") then return false end
+        if not obj:FindFirstChildOfClass("Decal") then return false end
+        return true
+    end)
+    return ok and res
+end
+
+-- ─── Кэш токенов способностей ────────────────────
+local _tokCache     = {}
 local _collectibles = nil
+
+local function registerToken(child)
+    -- Ждём чуть чтобы ParticleEmitter успел загрузиться
+    task.spawn(function()
+        task.wait(0.1)
+        if isAbilityToken(child) then
+            _tokCache[child] = true
+            child.AncestryChanged:Connect(function()
+                _tokCache[child] = nil
+            end)
+        end
+    end)
+end
 
 local function initCollectibles()
     _collectibles = workspace:WaitForChild("Collectibles", 15)
@@ -105,41 +133,23 @@ local function initCollectibles()
         return
     end
 
-    local function addToken(child)
-        -- Принимаем BasePart или Model с PrimaryPart
-        local pos
-        if child:IsA("BasePart") then
-            pos = child.Position
-        elseif child:IsA("Model") and child.PrimaryPart then
-            pos = child.PrimaryPart.Position
-        end
-        if not pos then return end
-        -- Добавляем в кэш
-        _tokCache[child] = true
-        -- Удаляем когда исчезнет
-        child.AncestryChanged:Connect(function()
-            _tokCache[child] = nil
-        end)
-    end
-
     -- Уже существующие
     for _, child in ipairs(_collectibles:GetChildren()) do
-        addToken(child)
+        registerToken(child)
     end
+
     -- Новые
-    _collectibles.ChildAdded:Connect(addToken)
+    _collectibles.ChildAdded:Connect(registerToken)
 end
 
 task.spawn(initCollectibles)
 
--- ─── Находим ближайший токен к игроку в радиусе ──
+-- ─── Ближайший ability-токен в радиусе поля ──────
 local function getNearestToken()
     if not HRP then return nil end
-    if not CFG.FieldPos then return nil end
 
     local best, bestDist = nil, math.huge
-    local myPos    = HRP.Position
-    local fieldPos = CFG.FieldPos
+    local myPos = HRP.Position
 
     for child in pairs(_tokCache) do
         if not child or not child.Parent then
@@ -147,17 +157,15 @@ local function getNearestToken()
             continue
         end
 
-        local pos
-        if child:IsA("BasePart") then
-            pos = child.Position
-        elseif child:IsA("Model") and child.PrimaryPart then
-            pos = child.PrimaryPart.Position
-        end
-        if not pos then continue end
+        local pos = child.Position
 
-        -- В радиусе поля (XZ)
-        local flatDist = Vector3.new(pos.X - fieldPos.X, 0, pos.Z - fieldPos.Z).Magnitude
-        if flatDist > CFG.FieldRadius then continue end
+        -- Фильтр по радиусу поля (если поле установлено)
+        if CFG.FieldPos then
+            local flatDist = Vector3.new(
+                pos.X - CFG.FieldPos.X, 0, pos.Z - CFG.FieldPos.Z
+            ).Magnitude
+            if flatDist > CFG.FieldRadius then continue end
+        end
 
         local d = (myPos - pos).Magnitude
         if d < bestDist then
@@ -172,57 +180,74 @@ end
 -- ─── UI ──────────────────────────────────────────
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
-local Win   = Rayfield:CreateWindow({ Name = "BSS ULTIMATE FARM", ConfigurationSaving = { Enabled = false } })
+local Win   = Rayfield:CreateWindow({
+    Name = "BSS ULTIMATE FARM",
+    ConfigurationSaving = { Enabled = false },
+})
+
 local TFarm = Win:CreateTab("Farm",      4483362458)
 local TItem = Win:CreateTab("Items",     4483362458)
 local TPos  = Win:CreateTab("Positions", 4483362458)
 
-local ParaStatus = TFarm:CreateParagraph({ Title = "Status", Content = "Idle" })
-local ParaPollen = TFarm:CreateParagraph({ Title = "Pollen", Content = "0.0%" })
-local ParaTokens = TFarm:CreateParagraph({ Title = "Tokens in field", Content = "0" })
+local ParaStatus = TFarm:CreateParagraph({ Title = "Status",          Content = "Idle" })
+local ParaPollen = TFarm:CreateParagraph({ Title = "Pollen",          Content = "0.0%" })
+local ParaTokens = TFarm:CreateParagraph({ Title = "Ability tokens",  Content = "0" })
 
 local function setStatus(s)
     pcall(function() ParaStatus:Set({ Title = "Status", Content = s }) end)
 end
 
+-- Farm
 TFarm:CreateSection("Auto Farm")
 
-TFarm:CreateToggle({ Name = "Auto Farm (Tokens)", CurrentValue = false, Callback = function(v)
-    CFG.AutoFarm = v
-    setStatus(v and "Farming..." or "Idle")
-end })
-
-TFarm:CreateToggle({ Name = "Auto Dig", CurrentValue = false, Callback = function(v)
-    CFG.AutoDig = v
-end })
-
-TFarm:CreateToggle({ Name = "Auto Convert (нужны точки!)", CurrentValue = false, Callback = function(v)
-    CFG.AutoConvert = v
-    if v and (not CFG.HivePos or not CFG.FieldPos) then
-        Rayfield:Notify({ Title = "Внимание", Content = "Установи точки во вкладке Positions!", Duration = 5 })
+TFarm:CreateToggle({ Name = "Auto Farm (Ability Tokens)", CurrentValue = false,
+    Callback = function(v)
+        CFG.AutoFarm = v
+        setStatus(v and "Farming..." or "Idle")
     end
-end })
+})
+
+TFarm:CreateToggle({ Name = "Auto Dig", CurrentValue = false,
+    Callback = function(v) CFG.AutoDig = v end
+})
+
+TFarm:CreateToggle({ Name = "Auto Convert (нужны точки!)", CurrentValue = false,
+    Callback = function(v)
+        CFG.AutoConvert = v
+        if v and (not CFG.HivePos or not CFG.FieldPos) then
+            Rayfield:Notify({
+                Title   = "Внимание",
+                Content = "Установи точки во вкладке Positions!",
+                Duration = 5
+            })
+        end
+    end
+})
 
 TFarm:CreateSection("Movement")
 
 TFarm:CreateSlider({ Name = "Farm Speed (studs/s)", Range = { 10, 300 }, Increment = 5, CurrentValue = 80,
-    Callback = function(v) CFG.FarmSpeed = v end })
+    Callback = function(v) CFG.FarmSpeed = v end
+})
 
 TFarm:CreateSlider({ Name = "Field Radius", Range = { 10, 150 }, Increment = 5, CurrentValue = 50,
-    Callback = function(v) CFG.FieldRadius = v end })
+    Callback = function(v) CFG.FieldRadius = v end
+})
 
 -- Items
 TItem:CreateSection("Auto Use Item")
 
-TItem:CreateToggle({ Name = "Auto Use Item", CurrentValue = false, Callback = function(v)
-    CFG.AutoItem = v
-end })
+TItem:CreateToggle({ Name = "Auto Use Item", CurrentValue = false,
+    Callback = function(v) CFG.AutoItem = v end
+})
 
 TItem:CreateSlider({ Name = "Slot (1-7)", Range = { 1, 7 }, Increment = 1, CurrentValue = 1,
-    Callback = function(v) CFG.ItemSlot = v end })
+    Callback = function(v) CFG.ItemSlot = v end
+})
 
 TItem:CreateSlider({ Name = "Delay x0.1s  (6 = 0.6s)", Range = { 1, 50 }, Increment = 1, CurrentValue = 6,
-    Callback = function(v) CFG.ItemDelay = v / 10 end })
+    Callback = function(v) CFG.ItemDelay = v / 10 end
+})
 
 -- Positions
 TPos:CreateSection("Установи ДО фарма!")
@@ -247,21 +272,21 @@ TPos:CreateButton({ Name = "Set Field (встань в центр поля)", Ca
 end })
 
 TPos:CreateButton({ Name = "Сбросить точки", Callback = function()
-    CFG.HivePos = nil; CFG.FieldPos = nil
+    CFG.HivePos = nil
+    CFG.FieldPos = nil
     HivePara:Set({ Title = "Hive",  Content = "не установлен" })
     FieldPara:Set({ Title = "Field", Content = "не установлен" })
     Rayfield:Notify({ Title = "Сброс", Content = "Точки очищены", Duration = 3 })
 end })
 
--- Обновление UI
+-- Live UI updater
 task.spawn(function()
     while task.wait(0.8) do
         pcall(function()
             ParaPollen:Set({ Title = "Pollen", Content = ("%.1f%%"):format(getPollen()) })
-            -- Считаем токены в поле
             local count = 0
             for _ in pairs(_tokCache) do count += 1 end
-            ParaTokens:Set({ Title = "Tokens in field", Content = tostring(count) })
+            ParaTokens:Set({ Title = "Ability tokens", Content = tostring(count) })
         end)
     end
 end)
@@ -279,7 +304,7 @@ task.spawn(function()
     end
 end)
 
--- 2. Auto Item  (VIM нажатие клавиши слота)
+-- 2. Auto Item
 local SlotKeys = {
     [1] = Enum.KeyCode.One,   [2] = Enum.KeyCode.Two,
     [3] = Enum.KeyCode.Three, [4] = Enum.KeyCode.Four,
@@ -321,7 +346,8 @@ task.spawn(function()
                 TweenInfo.new(math.max(dist / 80, 0.05), Enum.EasingStyle.Linear),
                 { CFrame = CFrame.new(CFG.HivePos) }
             )
-            tw:Play(); tw.Completed:Wait()
+            tw:Play()
+            tw.Completed:Wait()
         end)
 
         task.wait(0.3)
@@ -330,11 +356,13 @@ task.spawn(function()
         VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
 
         -- Ждём конвертацию (таймаут 25с)
-        local t = 0
-        repeat task.wait(0.3); t += 0.3
-        until getPollen() < 3 or t > 25
+        local elapsed = 0
+        repeat
+            task.wait(0.3)
+            elapsed += 0.3
+        until getPollen() < 3 or elapsed > 25
 
-        -- Tween обратно на поле
+        -- Tween обратно
         if CFG.FieldPos then
             pcall(function()
                 if not HRP then return end
@@ -344,7 +372,8 @@ task.spawn(function()
                     TweenInfo.new(math.max(dist / 80, 0.05), Enum.EasingStyle.Linear),
                     { CFrame = CFrame.new(CFG.FieldPos) }
                 )
-                tw:Play(); tw.Completed:Wait()
+                tw:Play()
+                tw.Completed:Wait()
             end)
         end
 
@@ -353,41 +382,39 @@ task.spawn(function()
     end
 end)
 
--- 4. Auto Farm — CFrame движение к токену
--- Токены собираются АВТОМАТИЧЕСКИ при физическом касании (client-side)
--- Нам нужно просто подойти к позиции токена
-
+-- 4. Auto Farm — CFrame движение к ability-токену
+-- Токены собираются автоматически при физическом касании (client-side touch)
 RunService.Heartbeat:Connect(function(dt)
     if not CFG.AutoFarm or _converting then return end
     if not HRP or not Hum or Hum.Health <= 0 then return end
-    if not CFG.FieldPos then return end
 
     local target = getNearestToken()
 
-    -- Нет токенов в поле — патрулируем центр
+    -- Нет ability-токенов — стоим в центре поля
     if not target then
         target = CFG.FieldPos
     end
+    if not target then return end
 
-    local pPos    = HRP.Position
-    local dx      = target.X - pPos.X
-    local dz      = target.Z - pPos.Z
-    local flatDst = math.sqrt(dx * dx + dz * dz)
+    local pPos   = HRP.Position
+    local dx     = target.X - pPos.X
+    local dz     = target.Z - pPos.Z
+    local flatD  = math.sqrt(dx * dx + dz * dz)
 
-    if flatDst > 1.5 then
-        local inv  = 1 / flatDst
-        local step = math.min(CFG.FarmSpeed * dt, flatDst)
+    if flatD > 1.5 then
+        local inv  = 1 / flatD
+        local step = math.min(CFG.FarmSpeed * dt, flatD)
 
         local nx = pPos.X + dx * inv * step
         local nz = pPos.Z + dz * inv * step
 
-        -- Y не трогаем — прыжки и парашют работают
+        -- Y не трогаем — прыжки и парашют работают корректно
         HRP.CFrame = CFrame.lookAt(
             Vector3.new(nx, pPos.Y, nz),
             Vector3.new(target.X, pPos.Y, target.Z)
         )
 
-        -- Гасим горизонтальную инерцию, вертикальную (Y) сохраняем
+        -- Гасим горизонтальную инерцию, Y сохраняем
         local vy = HRP.AssemblyLinearVelocity.Y
         HRP.AssemblyLinearVelocity = Vector3.new(0, vy, 0)
     end

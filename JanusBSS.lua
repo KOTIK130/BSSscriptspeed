@@ -1,5 +1,6 @@
 -- ════════════════════════════════════════════════════
---   BSS ULTIMATE FARM  v11  |  Все модули независимы
+--   BSS ULTIMATE FARM  |  Final v12
+--   Tokens: client-sided touch collection (no remotes)
 -- ════════════════════════════════════════════════════
 
 local Players           = game:GetService("Players")
@@ -8,102 +9,66 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService      = game:GetService("TweenService")
 local VIM               = game:GetService("VirtualInputManager")
 
-local Player  = Players.LocalPlayer
-local PGui    = Player.PlayerGui
-
--- ─── Debug Log ──────────────────────────────────
-local LOG_MAX = 200
-local _logBuffer = {}
-
-local function debugLog(msg)
-    local ts = os.date("%H:%M:%S")
-    local line = ("[%s] %s"):format(ts, tostring(msg))
-    table.insert(_logBuffer, line)
-    if #_logBuffer > LOG_MAX then
-        table.remove(_logBuffer, 1)
-    end
-    warn("[BSS] " .. msg)
-end
-
-local function saveLog()
-    local ok, err = pcall(function()
-        local content = table.concat(_logBuffer, "\n")
-        local filename = "bss_debug_log.txt"
-        writefile(filename, content)
-        return filename
-    end)
-    return ok, err
-end
+local Player = Players.LocalPlayer
+local PGui   = Player.PlayerGui
 
 -- ─── Конфиг ──────────────────────────────────────
 local CFG = {
     AutoFarm    = false,
-    FieldPos    = nil,
-    FieldRadius = 45,
-    FarmSpeed   = 60,
-
     AutoDig     = false,
-
     AutoConvert = false,
-    HivePos     = nil,
-
     AutoItem    = false,
     ItemSlot    = 1,
-
-    SpeedHack   = false,
-    WalkSpeed   = 70,
+    ItemDelay   = 0.6,
+    FarmSpeed   = 80,
+    FieldRadius = 50,
+    HivePos     = nil,
+    FieldPos    = nil,
 }
 
--- ─── Ремоты ──────────────────────────────────────
-local function findRemote(name)
+local _converting = false
+
+-- ─── Ремоуты ─────────────────────────────────────
+local function findR(name)
     local r = ReplicatedStorage:FindFirstChild(name, true)
-    if r then
-        debugLog("Remote OK: " .. name .. " (" .. r.ClassName .. ")")
-    else
-        debugLog("⚠ Remote NOT FOUND: " .. name)
-    end
+    if not r then warn("[BSS] Not found: " .. name) end
     return r
 end
 
 local R = {
-    ToolClick       = findRemote("toolClick"),
-    AbilityEvent    = findRemote("playerAbilityEvent"),
-    TokenEvent      = findRemote("tokenEvent"),
+    ToolClick = findR("toolClick"),
 }
 
--- ─── Персонаж ────────────────────────────────────
+-- ─── Персонаж ─────────────────────────────────────
 local Char, HRP, Hum
-local defaultSpeed = 16
 
 local function loadChar()
     Char = Player.Character or Player.CharacterAdded:Wait()
     HRP  = Char:WaitForChild("HumanoidRootPart")
     Hum  = Char:WaitForChild("Humanoid")
-    defaultSpeed = Hum.WalkSpeed
 end
 loadChar()
 
 Player.CharacterAdded:Connect(function()
+    _converting = false
     task.wait(0.5)
     loadChar()
-    if CFG.SpeedHack and Hum then
-        Hum.WalkSpeed = CFG.WalkSpeed
-    end
 end)
 
--- ─── Pollen ──────────────────────────────────────
-local _pollenCache = nil
+-- ─── Pollen ───────────────────────────────────────
+local _pollenLabel = nil
+
 local function findPollenLabel()
-    if _pollenCache and _pollenCache.Parent then return _pollenCache end
-    _pollenCache = nil
+    if _pollenLabel and _pollenLabel.Parent then return _pollenLabel end
+    _pollenLabel = nil
     local function scan(p, d)
         if d > 12 then return end
         for _, c in ipairs(p:GetChildren()) do
-            if (c:IsA("TextLabel") or c:IsA("TextBox")) then
+            if c:IsA("TextLabel") or c:IsA("TextBox") then
                 local t = (c.Text or ""):gsub("[,%s]", "")
                 local a, b = t:match("^(%d+)/(%d+)$")
                 if a and b and tonumber(b) > 100000 then
-                    _pollenCache = c; return c
+                    _pollenLabel = c; return c
                 end
             end
             local f = scan(c, d + 1)
@@ -126,247 +91,205 @@ local function getPollen()
     return ok and v or 0
 end
 
--- ─── Сканирование токенов (workspace.Collectibles) ──────
--- Все токены (ability + пыльца) в Collectibles, называются "C"
--- Валидация IsToken: Part, Orientation.Z==0, YVector.Y==1, 
--- Transparency==0, есть FrontDecal
-local _tokCache = {}      -- {Part instances}
+-- ─── Список токенов в поле ────────────────────────
+-- Токены = части в workspace.Collectibles
+-- Собираются просто физическим касанием (client-side touch)
+-- Фильтр: только те что в радиусе поля
+local _tokCache   = {}
+local _collectibles = nil
 
-local function IsToken(token)
-    if not token then return false end
-    if not token:IsA("Part") then return false end
-    local ok, res = pcall(function()
-        if token.Orientation.Z ~= 0 then return false end
-        if token.CFrame.YVector.Y ~= 1 then return false end
-        if token.Transparency ~= 0 then return false end
-        if not token:FindFirstChild("FrontDecal") then return false end
-        if token.Name ~= "C" and token.Name ~= "Bubble" then return false end
-        return true
-    end)
-    return ok and res
+local function initCollectibles()
+    _collectibles = workspace:WaitForChild("Collectibles", 15)
+    if not _collectibles then
+        warn("[BSS] workspace.Collectibles not found!")
+        return
+    end
+
+    local function addToken(child)
+        -- Принимаем BasePart или Model с PrimaryPart
+        local pos
+        if child:IsA("BasePart") then
+            pos = child.Position
+        elseif child:IsA("Model") and child.PrimaryPart then
+            pos = child.PrimaryPart.Position
+        end
+        if not pos then return end
+        -- Добавляем в кэш
+        _tokCache[child] = true
+        -- Удаляем когда исчезнет
+        child.AncestryChanged:Connect(function()
+            _tokCache[child] = nil
+        end)
+    end
+
+    -- Уже существующие
+    for _, child in ipairs(_collectibles:GetChildren()) do
+        addToken(child)
+    end
+    -- Новые
+    _collectibles.ChildAdded:Connect(addToken)
 end
 
-task.spawn(function()
-    while task.wait(0.5) do
-        if not CFG.AutoFarm then continue end
+task.spawn(initCollectibles)
 
-        local result = {}
-        local totalCount = 0
-        local validCount = 0
+-- ─── Находим ближайший токен к игроку в радиусе ──
+local function getNearestToken()
+    if not HRP then return nil end
+    if not CFG.FieldPos then return nil end
 
-        local ok, err = pcall(function()
-            local collectibles = workspace:FindFirstChild("Collectibles")
-            if not collectibles then return end
+    local best, bestDist = nil, math.huge
+    local myPos    = HRP.Position
+    local fieldPos = CFG.FieldPos
 
-            for _, child in ipairs(collectibles:GetChildren()) do
-                totalCount += 1
-                if IsToken(child) then
-                    validCount += 1
-                    -- Проверяем расстояние от поля
-                    if CFG.FieldPos then
-                        local dist = (child.Position - CFG.FieldPos).Magnitude
-                        if dist <= CFG.FieldRadius then
-                            table.insert(result, child)
-                        end
-                    else
-                        table.insert(result, child)
-                    end
-                end
-            end
-        end)
-
-        if not ok then
-            debugLog("Scan ERROR: " .. tostring(err))
+    for child in pairs(_tokCache) do
+        if not child or not child.Parent then
+            _tokCache[child] = nil
+            continue
         end
 
-        -- Логируем каждые 10 секунд или при изменении
-        if #result ~= #_tokCache or (tick() % 10 < 1.5) then
-            debugLog("Collectibles: total=" .. totalCount .. " valid=" .. validCount .. " inField=" .. #result)
+        local pos
+        if child:IsA("BasePart") then
+            pos = child.Position
+        elseif child:IsA("Model") and child.PrimaryPart then
+            pos = child.PrimaryPart.Position
         end
-        _tokCache = result
+        if not pos then continue end
+
+        -- В радиусе поля (XZ)
+        local flatDist = Vector3.new(pos.X - fieldPos.X, 0, pos.Z - fieldPos.Z).Magnitude
+        if flatDist > CFG.FieldRadius then continue end
+
+        local d = (myPos - pos).Magnitude
+        if d < bestDist then
+            bestDist = d
+            best     = pos
+        end
     end
-end)
+
+    return best
+end
 
 -- ─── UI ──────────────────────────────────────────
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
-local Win = Rayfield:CreateWindow({
-    Name = "BSS ULTIMATE FARM",
-    ConfigurationSaving = { Enabled = false },
-})
+local Win   = Rayfield:CreateWindow({ Name = "BSS ULTIMATE FARM", ConfigurationSaving = { Enabled = false } })
+local TFarm = Win:CreateTab("Farm",      4483362458)
+local TItem = Win:CreateTab("Items",     4483362458)
+local TPos  = Win:CreateTab("Positions", 4483362458)
 
-local TFarm  = Win:CreateTab("⚙ Farm",        4483362458)
-local TItem  = Win:CreateTab("🎒 Items",      4483362458)
-local TPos   = Win:CreateTab("📍 Positions",  4483362458)
-local TDebug = Win:CreateTab("🐛 Debug",      4483362458)
-
-local ParaStatus = TFarm:CreateParagraph({ Title = "Status", Content = "● Idle" })
+local ParaStatus = TFarm:CreateParagraph({ Title = "Status", Content = "Idle" })
 local ParaPollen = TFarm:CreateParagraph({ Title = "Pollen", Content = "0.0%" })
+local ParaTokens = TFarm:CreateParagraph({ Title = "Tokens in field", Content = "0" })
 
 local function setStatus(s)
     pcall(function() ParaStatus:Set({ Title = "Status", Content = s }) end)
 end
 
--- ── Farm tab ──
 TFarm:CreateSection("Auto Farm")
 
 TFarm:CreateToggle({ Name = "Auto Farm (Tokens)", CurrentValue = false, Callback = function(v)
     CFG.AutoFarm = v
-    setStatus(v and "● Farming..." or "● Idle")
+    setStatus(v and "Farming..." or "Idle")
 end })
 
 TFarm:CreateToggle({ Name = "Auto Dig", CurrentValue = false, Callback = function(v)
     CFG.AutoDig = v
 end })
 
-TFarm:CreateToggle({ Name = "Auto Convert  ⚠ нужны точки!", CurrentValue = false, Callback = function(v)
+TFarm:CreateToggle({ Name = "Auto Convert (нужны точки!)", CurrentValue = false, Callback = function(v)
     CFG.AutoConvert = v
     if v and (not CFG.HivePos or not CFG.FieldPos) then
-        Rayfield:Notify({ Title = "⚠ Внимание", Content = "Установи точки во вкладке Positions!", Duration = 5 })
+        Rayfield:Notify({ Title = "Внимание", Content = "Установи точки во вкладке Positions!", Duration = 5 })
     end
 end })
 
-TFarm:CreateSection("Speed Hack")
+TFarm:CreateSection("Movement")
 
-TFarm:CreateToggle({ Name = "Speed Hack", CurrentValue = false, Callback = function(v)
-    CFG.SpeedHack = v
-    if Hum then
-        Hum.WalkSpeed = v and CFG.WalkSpeed or defaultSpeed
-    end
-end })
-
-TFarm:CreateSlider({ Name = "WalkSpeed", Range = { 16, 500 }, Increment = 1, CurrentValue = 70,
-    Callback = function(v)
-        CFG.WalkSpeed = v
-        if CFG.SpeedHack and Hum then
-            Hum.WalkSpeed = v
-        end
-    end
-})
-
-TFarm:CreateSection("Farm Settings")
-
-TFarm:CreateSlider({ Name = "Farm Move Speed (studs/s)", Range = { 10, 300 }, Increment = 5, CurrentValue = 60,
+TFarm:CreateSlider({ Name = "Farm Speed (studs/s)", Range = { 10, 300 }, Increment = 5, CurrentValue = 80,
     Callback = function(v) CFG.FarmSpeed = v end })
 
-TFarm:CreateSlider({ Name = "Field Radius", Range = { 10, 150 }, Increment = 5, CurrentValue = 45,
+TFarm:CreateSlider({ Name = "Field Radius", Range = { 10, 150 }, Increment = 5, CurrentValue = 50,
     Callback = function(v) CFG.FieldRadius = v end })
 
--- ── Items tab ──
+-- Items
 TItem:CreateSection("Auto Use Item")
 
 TItem:CreateToggle({ Name = "Auto Use Item", CurrentValue = false, Callback = function(v)
     CFG.AutoItem = v
 end })
 
-TItem:CreateSlider({ Name = "Slot (1–7)", Range = { 1, 7 }, Increment = 1, CurrentValue = 1,
+TItem:CreateSlider({ Name = "Slot (1-7)", Range = { 1, 7 }, Increment = 1, CurrentValue = 1,
     Callback = function(v) CFG.ItemSlot = v end })
 
--- ── Positions tab ──
-TPos:CreateSection("⚠ Установи ДО фарма!")
+TItem:CreateSlider({ Name = "Delay x0.1s  (6 = 0.6s)", Range = { 1, 50 }, Increment = 1, CurrentValue = 6,
+    Callback = function(v) CFG.ItemDelay = v / 10 end })
+
+-- Positions
+TPos:CreateSection("Установи ДО фарма!")
 
 local HivePara  = TPos:CreateParagraph({ Title = "Hive",  Content = "не установлен" })
 local FieldPara = TPos:CreateParagraph({ Title = "Field", Content = "не установлен" })
 
-TPos:CreateButton({ Name = "📍 Set Hive  (встань у улья)", Callback = function()
+TPos:CreateButton({ Name = "Set Hive (встань у улья)", Callback = function()
     if not HRP then return end
     CFG.HivePos = HRP.Position
     local p = CFG.HivePos
-    HivePara:Set({ Title = "Hive ✓", Content = ("X:%.1f  Y:%.1f  Z:%.1f"):format(p.X, p.Y, p.Z) })
-    Rayfield:Notify({ Title = "Улей ✓", Content = "Точка сохранена", Duration = 3 })
+    HivePara:Set({ Title = "Hive OK", Content = ("X:%.1f Y:%.1f Z:%.1f"):format(p.X, p.Y, p.Z) })
+    Rayfield:Notify({ Title = "Улей", Content = "Точка сохранена", Duration = 3 })
 end })
 
-TPos:CreateButton({ Name = "📍 Set Field  (встань в центр поля)", Callback = function()
+TPos:CreateButton({ Name = "Set Field (встань в центр поля)", Callback = function()
     if not HRP then return end
     CFG.FieldPos = HRP.Position
-    _tokCache = {}
     local p = CFG.FieldPos
-    FieldPara:Set({ Title = "Field ✓", Content = ("X:%.1f  Y:%.1f  Z:%.1f"):format(p.X, p.Y, p.Z) })
-    Rayfield:Notify({ Title = "Поле ✓", Content = "Точка сохранена", Duration = 3 })
+    FieldPara:Set({ Title = "Field OK", Content = ("X:%.1f Y:%.1f Z:%.1f"):format(p.X, p.Y, p.Z) })
+    Rayfield:Notify({ Title = "Поле", Content = "Точка сохранена", Duration = 3 })
 end })
 
-TPos:CreateButton({ Name = "🗑 Сбросить точки", Callback = function()
+TPos:CreateButton({ Name = "Сбросить точки", Callback = function()
     CFG.HivePos = nil; CFG.FieldPos = nil
     HivePara:Set({ Title = "Hive",  Content = "не установлен" })
     FieldPara:Set({ Title = "Field", Content = "не установлен" })
     Rayfield:Notify({ Title = "Сброс", Content = "Точки очищены", Duration = 3 })
 end })
 
--- ── Debug tab ──
-TDebug:CreateSection("Логирование")
-
-local DebugPara = TDebug:CreateParagraph({ Title = "Лог", Content = "Последние записи появятся здесь" })
-
-TDebug:CreateButton({ Name = "💾 Сохранить лог (.txt)", Callback = function()
-    local ok, err = saveLog()
-    if ok then
-        Rayfield:Notify({ Title = "✅ Лог сохранён", Content = "Файл: workspace/bss_debug_log.txt\nСтрок: " .. #_logBuffer, Duration = 5 })
-        debugLog("Лог сохранён в bss_debug_log.txt (" .. #_logBuffer .. " строк)")
-    else
-        Rayfield:Notify({ Title = "❌ Ошибка", Content = tostring(err), Duration = 5 })
-    end
-end })
-
-TDebug:CreateButton({ Name = "🗑 Очистить лог", Callback = function()
-    _logBuffer = {}
-    Rayfield:Notify({ Title = "🗑 Очищено", Content = "Лог очищен", Duration = 3 })
-end })
-
-TDebug:CreateButton({ Name = "📋 Показать последние 10 записей", Callback = function()
-    local start = math.max(1, #_logBuffer - 9)
-    local lines = {}
-    for i = start, #_logBuffer do
-        table.insert(lines, _logBuffer[i])
-    end
-    local txt = #lines > 0 and table.concat(lines, "\n") or "Лог пуст"
-    DebugPara:Set({ Title = "Лог (последние " .. #lines .. ")", Content = txt })
-end })
-
--- Обновление поллена
+-- Обновление UI
 task.spawn(function()
     while task.wait(0.8) do
         pcall(function()
             ParaPollen:Set({ Title = "Pollen", Content = ("%.1f%%"):format(getPollen()) })
+            -- Считаем токены в поле
+            local count = 0
+            for _ in pairs(_tokCache) do count += 1 end
+            ParaTokens:Set({ Title = "Tokens in field", Content = tostring(count) })
         end)
     end
 end)
 
 -- ════════════════════════════════════════════════════
---   МОДУЛИ — каждый полностью независим
+--   ЛОГИКА
 -- ════════════════════════════════════════════════════
 
--- ── 1. SPEED HACK ─────────────────────────────────
-task.spawn(function()
-    while task.wait(0.5) do
-        if CFG.SpeedHack and Hum then
-            pcall(function() Hum.WalkSpeed = CFG.WalkSpeed end)
-        end
-    end
-end)
-
--- ── 2. AUTO DIG ───────────────────────────────────
+-- 1. Auto Dig
 task.spawn(function()
     while task.wait(0.1) do
-        if CFG.AutoDig and R.ToolClick then
+        if CFG.AutoDig and not _converting and R.ToolClick then
             pcall(function() R.ToolClick:InvokeServer() end)
         end
     end
 end)
 
--- ── 3. AUTO ITEM ──────────────────────────────────
--- Симулируем нажатие клавиш 1–7 через VirtualInputManager
+-- 2. Auto Item  (VIM нажатие клавиши слота)
 local SlotKeys = {
-    [1] = Enum.KeyCode.One,
-    [2] = Enum.KeyCode.Two,
-    [3] = Enum.KeyCode.Three,
-    [4] = Enum.KeyCode.Four,
-    [5] = Enum.KeyCode.Five,
-    [6] = Enum.KeyCode.Six,
+    [1] = Enum.KeyCode.One,   [2] = Enum.KeyCode.Two,
+    [3] = Enum.KeyCode.Three, [4] = Enum.KeyCode.Four,
+    [5] = Enum.KeyCode.Five,  [6] = Enum.KeyCode.Six,
     [7] = Enum.KeyCode.Seven,
 }
 
 task.spawn(function()
-    while task.wait(0.7) do
+    while true do
+        task.wait(CFG.ItemDelay)
         if CFG.AutoItem and not _converting then
             local key = SlotKeys[CFG.ItemSlot]
             if key then
@@ -380,121 +303,92 @@ task.spawn(function()
     end
 end)
 
--- ── 4. AUTO CONVERT ───────────────────────────────
-local _converting = false
+-- 3. Auto Convert
 task.spawn(function()
     while task.wait(0.3) do
-        if not CFG.AutoConvert then continue end
-        if not CFG.HivePos then continue end
-        if _converting then continue end
+        if not CFG.AutoConvert or not CFG.HivePos or _converting then continue end
         if getPollen() < 99 then continue end
 
         _converting = true
-        debugLog("Convert START — pollen: " .. ("%.1f%%"):format(getPollen()))
-        setStatus("● Converting...")
+        setStatus("Converting...")
 
+        -- Tween к улью
         pcall(function()
             if not HRP then return end
             local dist = (HRP.Position - CFG.HivePos).Magnitude
-            local t = TweenInfo.new(math.max(dist / 60, 0.1), Enum.EasingStyle.Linear)
-            local tw = TweenService:Create(HRP, t, { CFrame = CFrame.new(CFG.HivePos) })
-            tw:Play()
-            tw.Completed:Wait()
+            local tw = TweenService:Create(
+                HRP,
+                TweenInfo.new(math.max(dist / 80, 0.05), Enum.EasingStyle.Linear),
+                { CFrame = CFrame.new(CFG.HivePos) }
+            )
+            tw:Play(); tw.Completed:Wait()
         end)
 
         task.wait(0.3)
-
         VIM:SendKeyEvent(true,  Enum.KeyCode.E, false, game)
         task.wait(0.15)
         VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
 
-        local waited = 0
-        repeat task.wait(0.3); waited += 0.3
-        until getPollen() < 3 or waited > 30
+        -- Ждём конвертацию (таймаут 25с)
+        local t = 0
+        repeat task.wait(0.3); t += 0.3
+        until getPollen() < 3 or t > 25
 
+        -- Tween обратно на поле
         if CFG.FieldPos then
             pcall(function()
                 if not HRP then return end
                 local dist = (HRP.Position - CFG.FieldPos).Magnitude
-                local t = TweenInfo.new(math.max(dist / 60, 0.1), Enum.EasingStyle.Linear)
-                local tw = TweenService:Create(HRP, t, { CFrame = CFrame.new(CFG.FieldPos) })
-                tw:Play()
-                tw.Completed:Wait()
+                local tw = TweenService:Create(
+                    HRP,
+                    TweenInfo.new(math.max(dist / 80, 0.05), Enum.EasingStyle.Linear),
+                    { CFrame = CFrame.new(CFG.FieldPos) }
+                )
+                tw:Play(); tw.Completed:Wait()
             end)
         end
 
         _converting = false
-        debugLog("Convert END — pollen: " .. ("%.1f%%"):format(getPollen()))
-        setStatus(CFG.AutoFarm and "● Farming..." or (CFG.AutoConvert and "● Waiting..." or "● Idle"))
+        setStatus(CFG.AutoFarm and "Farming..." or "Idle")
     end
 end)
 
--- ── 5. AUTO FARM ──────────────────────────────────
--- MoveTo к ближайшему токену — ходьба автоматически собирает при касании
-task.spawn(function()
-    while task.wait(0.2) do
-        if not CFG.AutoFarm then continue end
-        if _converting then continue end
-        if not HRP or not Hum or Hum.Health <= 0 then continue end
+-- 4. Auto Farm — CFrame движение к токену
+-- Токены собираются АВТОМАТИЧЕСКИ при физическом касании (client-side)
+-- Нам нужно просто подойти к позиции токена
 
-        local tokens = _tokCache
-        if #tokens == 0 then continue end
+RunService.Heartbeat:Connect(function(dt)
+    if not CFG.AutoFarm or _converting then return end
+    if not HRP or not Hum or Hum.Health <= 0 then return end
+    if not CFG.FieldPos then return end
 
-        -- Найти ближайший токен
-        local target = nil
-        local bestD  = math.huge
-        local myPos = HRP.Position
+    local target = getNearestToken()
 
-        for _, part in ipairs(tokens) do
-            if part and part.Parent then
-                local d = (part.Position - myPos).Magnitude
-                if d < bestD then
-                    bestD  = d
-                    target = part
-                end
-            end
-        end
-
-        if not target or not target.Parent then continue end
-
-        local tPos = target.Position
-
-        -- Идём к токену через MoveTo (естественная ходьба → авто-сбор)
-        pcall(function()
-            Hum:MoveTo(tPos)
-        end)
-
-        -- Ждём пока дойдём (< 5 studs) или токен исчезнет
-        local waited = 0
-        while target and target.Parent and waited < 3 do
-            local dist = (HRP.Position - target.Position).Magnitude
-            if dist < 5 then break end
-            task.wait(0.1)
-            waited += 0.1
-        end
-
-        if target and target.Parent and (HRP.Position - target.Position).Magnitude < 5 then
-            debugLog("✓ Token reached @ " .. math.floor(tPos.X) .. "," .. math.floor(tPos.Z))
-        end
+    -- Нет токенов в поле — патрулируем центр
+    if not target then
+        target = CFG.FieldPos
     end
-end)
 
--- ════════════════════════════════════════════════════
-debugLog("✅ Скрипт загружен! v11 — Collectibles + IsToken + MoveTo")
-debugLog("Remotes: ToolClick=" .. tostring(R.ToolClick ~= nil))
+    local pPos    = HRP.Position
+    local dx      = target.X - pPos.X
+    local dz      = target.Z - pPos.Z
+    local flatDst = math.sqrt(dx * dx + dz * dz)
 
--- Проверяем наличие workspace.Collectibles
-pcall(function()
-    local coll = workspace:FindFirstChild("Collectibles")
-    debugLog("workspace.Collectibles: " .. tostring(coll ~= nil))
-    if coll then
-        local children = coll:GetChildren()
-        debugLog("Collectibles children: " .. #children)
-        -- Считаем сколько валидных токенов
-        local valid = 0
-        for _, c in ipairs(children) do
-            if IsToken(c) then valid += 1 end
-        end
-        debugLog("Valid tokens (IsToken): " .. valid .. " / " .. #children)
+    if flatDst > 1.5 then
+        local inv  = 1 / flatDst
+        local step = math.min(CFG.FarmSpeed * dt, flatDst)
+
+        local nx = pPos.X + dx * inv * step
+        local nz = pPos.Z + dz * inv * step
+
+        -- Y не трогаем — прыжки и парашют работают
+        HRP.CFrame = CFrame.lookAt(
+            Vector3.new(nx, pPos.Y, nz),
+            Vector3.new(target.X, pPos.Y, target.Z)
+        )
+
+        -- Гасим горизонтальную инерцию, вертикальную (Y) сохраняем
+        local vy = HRP.AssemblyLinearVelocity.Y
+        HRP.AssemblyLinearVelocity = Vector3.new(0, vy, 0)
     end
 end)

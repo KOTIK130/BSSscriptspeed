@@ -1,5 +1,5 @@
 -- ════════════════════════════════════════════════════
---   BSS ULTIMATE FARM  v6  |  Все модули независимы
+--   BSS ULTIMATE FARM  v10  |  Все модули независимы
 -- ════════════════════════════════════════════════════
 
 local Players           = game:GetService("Players")
@@ -126,12 +126,12 @@ local function getPollen()
     return ok and v or 0
 end
 
--- ─── Сканирование токенов ─────────────────────────
--- Токены в BSS лежат в workspace.Debris.Tokens
--- Личные = Name == Player.Name, общие = Name == "All"
+-- ─── Сканирование токенов способностей ──────────────
+-- Ability токены лежат в workspace.Particles
+-- Они: Name="Part", ClassName="Part", Size ~0.25 (очень маленькие)
+-- Исключаем: Crosshair (MeshPart), Spotlight (большой Part ~4+)
 local _tokCache = {}      -- {Part instances}
 local _tokBlacklist = {}  -- {[Part] = tick()} — кулдаун 3 сек
-local _playerName = Player.Name
 
 task.spawn(function()
     while task.wait(0.5) do
@@ -145,23 +145,30 @@ task.spawn(function()
             if now - t > 3 then _tokBlacklist[part] = nil end
         end
 
-        local totalTokens = 0
-        local myTokens = 0
+        local totalInParticles = 0
+        local abilityTokens = 0
 
         local ok, err = pcall(function()
-            local debrisTokens = workspace:FindFirstChild("Debris")
-            if not debrisTokens then return end
-            debrisTokens = debrisTokens:FindFirstChild("Tokens")
-            if not debrisTokens then return end
+            local particles = workspace:FindFirstChild("Particles")
+            if not particles then return end
 
-            for _, child in ipairs(debrisTokens:GetChildren()) do
-                if child:IsA("BasePart") then
-                    totalTokens += 1
-                    -- Только наши токены (именуются по игроку) или общие ("All")
-                    if child.Name == _playerName or child.Name == "All" then
-                        myTokens += 1
+            for _, child in ipairs(particles:GetChildren()) do
+                totalInParticles += 1
+                -- Ability токены: Part с маленьким размером
+                if child.ClassName == "Part" and child.Name == "Part" then
+                    local size = child.Size
+                    if size.X < 0.5 and size.Z < 0.5 then
+                        abilityTokens += 1
                         if not _tokBlacklist[child] then
-                            table.insert(result, child)
+                            -- Проверяем что токен в пределах поля
+                            if CFG.FieldPos then
+                                local dist = (child.Position - CFG.FieldPos).Magnitude
+                                if dist <= CFG.FieldRadius then
+                                    table.insert(result, child)
+                                end
+                            else
+                                table.insert(result, child)
+                            end
                         end
                     end
                 end
@@ -174,7 +181,7 @@ task.spawn(function()
 
         -- Логируем каждые 10 секунд или при изменении
         if #result ~= #_tokCache or (tick() % 10 < 1.5) then
-            debugLog("Tokens: total=" .. totalTokens .. " mine=" .. myTokens .. " available=" .. #result)
+            debugLog("Particles: total=" .. totalInParticles .. " ability=" .. abilityTokens .. " inField=" .. #result)
         end
         _tokCache = result
     end
@@ -427,18 +434,18 @@ end)
 local _currentTween = nil
 local _farmTouched = nil  -- connection
 
--- Подключаем Touched для сбора токенов
+-- Подключаем Touched для сбора ability токенов
 local function setupTouchedConnection()
     if _farmTouched then _farmTouched:Disconnect() end
     if not HRP then return end
     _farmTouched = HRP.Touched:Connect(function(hit)
         if not hit or not hit.Parent then return end
-        -- Проверяем что это токен из Debris.Tokens
-        local par = hit.Parent
-        if par and par.Name == "Tokens" and par.Parent and par.Parent.Name == "Debris" then
-            if hit.Name == _playerName or hit.Name == "All" then
+        -- Проверяем что это ability токен из Particles
+        if hit.Parent.Name == "Particles" and hit.ClassName == "Part" and hit.Name == "Part" then
+            local size = hit.Size
+            if size.X < 0.5 and size.Z < 0.5 then
                 _tokBlacklist[hit] = tick()
-                debugLog("Token collected: " .. hit.Name .. " @ " .. math.floor(hit.Position.X) .. "," .. math.floor(hit.Position.Z))
+                debugLog("✓ Ability token collected @ " .. math.floor(hit.Position.X) .. "," .. math.floor(hit.Position.Z))
             end
         end
     end)
@@ -516,19 +523,24 @@ task.spawn(function()
 end)
 
 -- ════════════════════════════════════════════════════
-debugLog("✅ Скрипт загружен! v9 — Debris.Tokens + Tween + Touched")
+debugLog("✅ Скрипт загружен! v10 — Particles + Tween + Touched")
 debugLog("Remotes: ToolClick=" .. tostring(R.ToolClick ~= nil))
-debugLog("Player name for tokens: " .. _playerName)
 
--- Проверяем наличие Debris.Tokens
+-- Проверяем наличие workspace.Particles
 pcall(function()
-    local debris = workspace:FindFirstChild("Debris")
-    debugLog("workspace.Debris: " .. tostring(debris ~= nil))
-    if debris then
-        local tokens = debris:FindFirstChild("Tokens")
-        debugLog("workspace.Debris.Tokens: " .. tostring(tokens ~= nil))
-        if tokens then
-            debugLog("Tokens children count: " .. #tokens:GetChildren())
+    local particles = workspace:FindFirstChild("Particles")
+    debugLog("workspace.Particles: " .. tostring(particles ~= nil))
+    if particles then
+        local children = particles:GetChildren()
+        debugLog("Particles children: " .. #children)
+        -- Считаем типы
+        local counts = {}
+        for _, c in ipairs(children) do
+            local key = c.ClassName .. ":" .. c.Name
+            counts[key] = (counts[key] or 0) + 1
+        end
+        for k, v in pairs(counts) do
+            debugLog("  " .. k .. " x" .. v)
         end
     end
 end)

@@ -1,5 +1,5 @@
 -- ════════════════════════════════════════════════════
---   BSS ULTIMATE FARM  v10  |  Все модули независимы
+--   BSS ULTIMATE FARM  v11  |  Все модули независимы
 -- ════════════════════════════════════════════════════
 
 local Players           = game:GetService("Players")
@@ -126,50 +126,50 @@ local function getPollen()
     return ok and v or 0
 end
 
--- ─── Сканирование токенов способностей ──────────────
--- Ability токены лежат в workspace.Particles
--- Они: Name="Part", ClassName="Part", Size ~0.25 (очень маленькие)
--- Исключаем: Crosshair (MeshPart), Spotlight (большой Part ~4+)
+-- ─── Сканирование токенов (workspace.Collectibles) ──────
+-- Все токены (ability + пыльца) в Collectibles, называются "C"
+-- Валидация IsToken: Part, Orientation.Z==0, YVector.Y==1, 
+-- Transparency==0, есть FrontDecal
 local _tokCache = {}      -- {Part instances}
-local _tokBlacklist = {}  -- {[Part] = tick()} — кулдаун 3 сек
+
+local function IsToken(token)
+    if not token then return false end
+    if not token:IsA("Part") then return false end
+    local ok, res = pcall(function()
+        if token.Orientation.Z ~= 0 then return false end
+        if token.CFrame.YVector.Y ~= 1 then return false end
+        if token.Transparency ~= 0 then return false end
+        if not token:FindFirstChild("FrontDecal") then return false end
+        if token.Name ~= "C" and token.Name ~= "Bubble" then return false end
+        return true
+    end)
+    return ok and res
+end
 
 task.spawn(function()
     while task.wait(0.5) do
         if not CFG.AutoFarm then continue end
 
         local result = {}
-        local now = tick()
-
-        -- Чистим старые записи из блеклиста
-        for part, t in pairs(_tokBlacklist) do
-            if now - t > 3 then _tokBlacklist[part] = nil end
-        end
-
-        local totalInParticles = 0
-        local abilityTokens = 0
+        local totalCount = 0
+        local validCount = 0
 
         local ok, err = pcall(function()
-            local particles = workspace:FindFirstChild("Particles")
-            if not particles then return end
+            local collectibles = workspace:FindFirstChild("Collectibles")
+            if not collectibles then return end
 
-            for _, child in ipairs(particles:GetChildren()) do
-                totalInParticles += 1
-                -- Ability токены: Part с маленьким размером
-                if child.ClassName == "Part" and child.Name == "Part" then
-                    local size = child.Size
-                    if size.X < 0.5 and size.Z < 0.5 then
-                        abilityTokens += 1
-                        if not _tokBlacklist[child] then
-                            -- Проверяем что токен в пределах поля
-                            if CFG.FieldPos then
-                                local dist = (child.Position - CFG.FieldPos).Magnitude
-                                if dist <= CFG.FieldRadius then
-                                    table.insert(result, child)
-                                end
-                            else
-                                table.insert(result, child)
-                            end
+            for _, child in ipairs(collectibles:GetChildren()) do
+                totalCount += 1
+                if IsToken(child) then
+                    validCount += 1
+                    -- Проверяем расстояние от поля
+                    if CFG.FieldPos then
+                        local dist = (child.Position - CFG.FieldPos).Magnitude
+                        if dist <= CFG.FieldRadius then
+                            table.insert(result, child)
                         end
+                    else
+                        table.insert(result, child)
                     end
                 end
             end
@@ -181,7 +181,7 @@ task.spawn(function()
 
         -- Логируем каждые 10 секунд или при изменении
         if #result ~= #_tokCache or (tick() % 10 < 1.5) then
-            debugLog("Particles: total=" .. totalInParticles .. " ability=" .. abilityTokens .. " inField=" .. #result)
+            debugLog("Collectibles: total=" .. totalCount .. " valid=" .. validCount .. " inField=" .. #result)
         end
         _tokCache = result
     end
@@ -430,44 +430,12 @@ task.spawn(function()
 end)
 
 -- ── 5. AUTO FARM ──────────────────────────────────
--- Tween к ближайшему токену + сбор касанием (HRP.Touched)
-local _currentTween = nil
-local _farmTouched = nil  -- connection
-
--- Подключаем Touched для сбора ability токенов
-local function setupTouchedConnection()
-    if _farmTouched then _farmTouched:Disconnect() end
-    if not HRP then return end
-    _farmTouched = HRP.Touched:Connect(function(hit)
-        if not hit or not hit.Parent then return end
-        -- Проверяем что это ability токен из Particles
-        if hit.Parent.Name == "Particles" and hit.ClassName == "Part" and hit.Name == "Part" then
-            local size = hit.Size
-            if size.X < 0.5 and size.Z < 0.5 then
-                _tokBlacklist[hit] = tick()
-                debugLog("✓ Ability token collected @ " .. math.floor(hit.Position.X) .. "," .. math.floor(hit.Position.Z))
-            end
-        end
-    end)
-end
-setupTouchedConnection()
-
+-- MoveTo к ближайшему токену — ходьба автоматически собирает при касании
 task.spawn(function()
     while task.wait(0.2) do
-        if not CFG.AutoFarm then
-            if _currentTween then
-                pcall(function() _currentTween:Cancel() end)
-                _currentTween = nil
-            end
-            continue
-        end
+        if not CFG.AutoFarm then continue end
         if _converting then continue end
         if not HRP or not Hum or Hum.Health <= 0 then continue end
-
-        -- Обновляем Touched если персонаж обновился
-        if not _farmTouched or not _farmTouched.Connected then
-            setupTouchedConnection()
-        end
 
         local tokens = _tokCache
         if #tokens == 0 then continue end
@@ -475,15 +443,11 @@ task.spawn(function()
         -- Найти ближайший токен
         local target = nil
         local bestD  = math.huge
-        local px = HRP.Position.X
-        local pz = HRP.Position.Z
+        local myPos = HRP.Position
 
         for _, part in ipairs(tokens) do
             if part and part.Parent then
-                local pos = part.Position
-                local dx = pos.X - px
-                local dz = pos.Z - pz
-                local d  = dx * dx + dz * dz
+                local d = (part.Position - myPos).Magnitude
                 if d < bestD then
                     bestD  = d
                     target = part
@@ -494,53 +458,43 @@ task.spawn(function()
         if not target or not target.Parent then continue end
 
         local tPos = target.Position
-        local cur  = HRP.Position
-        local dist = (Vector3.new(tPos.X, 0, tPos.Z) - Vector3.new(cur.X, 0, cur.Z)).Magnitude
 
-        if dist < 1 then
-            _tokBlacklist[target] = tick()
-            continue
-        end
-
-        -- Tween к токену
+        -- Идём к токену через MoveTo (естественная ходьба → авто-сбор)
         pcall(function()
-            local tweenTime = math.max(dist / CFG.FarmSpeed, 0.05)
-            local ti = TweenInfo.new(tweenTime, Enum.EasingStyle.Linear)
-            local goalCF = CFrame.new(tPos.X, cur.Y, tPos.Z)
-
-            if _currentTween then
-                _currentTween:Cancel()
-            end
-
-            _currentTween = TweenService:Create(HRP, ti, { CFrame = goalCF })
-            _currentTween:Play()
-            _currentTween.Completed:Wait()
-            _currentTween = nil
+            Hum:MoveTo(tPos)
         end)
 
-        debugLog("Tween to token @ " .. math.floor(tPos.X) .. "," .. math.floor(tPos.Z) .. " dist=" .. math.floor(dist))
+        -- Ждём пока дойдём (< 5 studs) или токен исчезнет
+        local waited = 0
+        while target and target.Parent and waited < 3 do
+            local dist = (HRP.Position - target.Position).Magnitude
+            if dist < 5 then break end
+            task.wait(0.1)
+            waited += 0.1
+        end
+
+        if target and target.Parent and (HRP.Position - target.Position).Magnitude < 5 then
+            debugLog("✓ Token reached @ " .. math.floor(tPos.X) .. "," .. math.floor(tPos.Z))
+        end
     end
 end)
 
 -- ════════════════════════════════════════════════════
-debugLog("✅ Скрипт загружен! v10 — Particles + Tween + Touched")
+debugLog("✅ Скрипт загружен! v11 — Collectibles + IsToken + MoveTo")
 debugLog("Remotes: ToolClick=" .. tostring(R.ToolClick ~= nil))
 
--- Проверяем наличие workspace.Particles
+-- Проверяем наличие workspace.Collectibles
 pcall(function()
-    local particles = workspace:FindFirstChild("Particles")
-    debugLog("workspace.Particles: " .. tostring(particles ~= nil))
-    if particles then
-        local children = particles:GetChildren()
-        debugLog("Particles children: " .. #children)
-        -- Считаем типы
-        local counts = {}
+    local coll = workspace:FindFirstChild("Collectibles")
+    debugLog("workspace.Collectibles: " .. tostring(coll ~= nil))
+    if coll then
+        local children = coll:GetChildren()
+        debugLog("Collectibles children: " .. #children)
+        -- Считаем сколько валидных токенов
+        local valid = 0
         for _, c in ipairs(children) do
-            local key = c.ClassName .. ":" .. c.Name
-            counts[key] = (counts[key] or 0) + 1
+            if IsToken(c) then valid += 1 end
         end
-        for k, v in pairs(counts) do
-            debugLog("  " .. k .. " x" .. v)
-        end
+        debugLog("Valid tokens (IsToken): " .. valid .. " / " .. #children)
     end
 end)

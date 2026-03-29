@@ -48,6 +48,7 @@ local CFG = {
 
     AutoItem    = false,
     ItemSlot    = 1,
+    ItemSpeed   = 0.7,
 
     SpeedHack   = false,
     WalkSpeed   = 70,
@@ -198,6 +199,8 @@ end })
 
 TItem:CreateSlider({ Name = "Slot (1–7)", Range = { 1, 7 }, Increment = 1, CurrentValue = 1,
     Callback = function(v) CFG.ItemSlot = v end })
+TItem:CreateSlider({ Name = "Use Speed (sec)", Range = { 0.1, 3 }, Increment = 0.1, CurrentValue = 0.7,
+    Callback = function(v) CFG.ItemSpeed = v end })
 
 -- ── Positions tab ──
 TPos:CreateSection("⚠ Установи ДО фарма!")
@@ -303,7 +306,7 @@ local SlotKeys = {
 }
 
 task.spawn(function()
-    while task.wait(0.7) do
+    while task.wait(CFG.ItemSpeed) do
         if CFG.AutoItem and not _converting then
             local key = SlotKeys[CFG.ItemSlot]
             if key then

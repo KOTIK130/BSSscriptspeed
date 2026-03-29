@@ -1,5 +1,5 @@
 -- ════════════════════════════════════════════════════
---   BSS ULTIMATE FARM  v12  |  Все модули независимы
+--   BSS ULTIMATE FARM  v13  |  Все модули независимы
 -- ════════════════════════════════════════════════════
 
 local Players           = game:GetService("Players")
@@ -366,23 +366,21 @@ task.spawn(function()
     end
 end)
 
--- ── 5. AUTO FARM — Змейка (CFrame + WalkSpeed) ───
-task.spawn(function()
-    local DT = 1/30  -- ~30 fps цикл
-    local GAP = 8    -- расстояние между линиями змейки (studs)
+-- ── 5. AUTO FARM — Змейка (Heartbeat + CFrame) ───
+do
+    local RS  = game:GetService("RunService")
+    local GAP = 8  -- расстояние между линиями змейки (studs)
 
     -- Состояние змейки
-    local snakeDir = 1       -- 1 = вправо, -1 = влево
-    local snakeRow = 0       -- текущая линия (0, GAP, 2*GAP, ...)
-    local targetPos = nil    -- текущая точка куда идём
+    local snakeDir = 1
+    local snakeRow = 0
+    local targetPos = nil
 
     local function buildTarget()
         if not CFG.FieldPos then return nil end
         local c = CFG.FieldPos
         local r = CFG.FieldRadius
-        local x = c.X + snakeDir * r
-        local z = c.Z - r + snakeRow
-        return Vector3.new(x, c.Y, z)
+        return Vector3.new(c.X + snakeDir * r, c.Y, c.Z - r + snakeRow)
     end
 
     local function nextRow()
@@ -395,41 +393,61 @@ task.spawn(function()
         targetPos = buildTarget()
     end
 
-    while true do
-        task.wait(DT)
-        if not CFG.AutoFarm then continue end
-        if _converting then continue end
-        if not HRP or not Hum or Hum.Health <= 0 then continue end
-        if not CFG.FieldPos then continue end
+    local prevActive = false
 
-        -- Инициализация или сброс цели
+    RS.Heartbeat:Connect(function(dt)
+        -- Проверки
+        if not CFG.AutoFarm or _converting then
+            if prevActive then
+                prevActive = false
+                targetPos = nil
+            end
+            return
+        end
+        if not HRP or not Hum or Hum.Health <= 0 then return end
+        if not CFG.FieldPos then return end
+
+        -- Инициализация при включении
         if not targetPos then
             snakeRow = 0
             snakeDir = 1
             targetPos = buildTarget()
+            prevActive = true
         end
-        if not targetPos then continue end
+        if not targetPos then return end
 
-        -- Скорость = WalkSpeed персонажа (SpeedHack влияет)
-        local speed = Hum.WalkSpeed
         local myPos = HRP.Position
-        local diff = Vector3.new(targetPos.X - myPos.X, 0, targetPos.Z - myPos.Z)
-        local dist = diff.Magnitude
+        local tx, tz = targetPos.X, targetPos.Z
+        local dx, dz = tx - myPos.X, tz - myPos.Z
+        local dist = math.sqrt(dx * dx + dz * dz)
 
         if dist < 3 then
-            -- Дошли до края — следующая линия
             nextRow()
-        else
-            -- Двигаемся к цели через CFrame на скорости WalkSpeed
-            local step = math.min(speed * DT, dist)
-            local dir = diff.Unit
-            pcall(function()
-                HRP.CFrame = HRP.CFrame + dir * step
-            end)
+            return
         end
-    end
-end)
+
+        -- Скорость = WalkSpeed (SpeedHack автоматически ускоряет)
+        local speed = Hum.WalkSpeed
+        local step  = math.min(speed * dt, dist)
+        local nx, nz = dx / dist, dz / dist  -- нормализованный вектор
+
+        -- Новая позиция: X/Z по змейке, Y от текущей (следуем рельефу)
+        local newX = myPos.X + nx * step
+        local newZ = myPos.Z + nz * step
+        local newY = myPos.Y  -- сохраняем текущую высоту
+
+        pcall(function()
+            -- Поворот персонажа по направлению движения
+            local look = Vector3.new(nx, 0, nz)
+            HRP.CFrame = CFrame.new(Vector3.new(newX, newY, newZ), Vector3.new(newX + nx, newY, newZ + nz))
+
+            -- Обнуляем Velocity — убираем скольжение
+            HRP.AssemblyLinearVelocity = Vector3.new(0, HRP.AssemblyLinearVelocity.Y, 0)
+            HRP.AssemblyAngularVelocity = Vector3.zero
+        end)
+    end)
+end
 
 -- ════════════════════════════════════════════════════
-debugLog("✅ Скрипт загружен! v12 — Snake CFrame + WalkSpeed")
+debugLog("✅ Скрипт загружен! v13 — Snake Heartbeat + AntiSlide")
 debugLog("Remotes: ToolClick=" .. tostring(R.ToolClick ~= nil))

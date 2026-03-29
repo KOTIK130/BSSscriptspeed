@@ -426,8 +426,8 @@ do
             return
         end
 
-        -- Скорость = WalkSpeed (SpeedHack автоматически ускоряет)
-        local speed = Hum.WalkSpeed
+        -- Скорость = установленная в слайдере (не зависит от токенов скорости)
+        local speed = CFG.SpeedHack and CFG.WalkSpeed or defaultSpeed
         local step  = math.min(speed * dt, dist)
         local nx, nz = dx / dist, dz / dist  -- нормализованный вектор
 

@@ -46,9 +46,15 @@ local CFG = {
     AutoConvert = false,
     HivePos     = nil,
 
-    AutoItem    = false,
-    ItemSlot    = 1,
-    ItemSpeed   = 0.7,
+    ItemSlots   = {
+        [1] = { Enabled = false, Delay = 1 },
+        [2] = { Enabled = false, Delay = 1 },
+        [3] = { Enabled = false, Delay = 1 },
+        [4] = { Enabled = false, Delay = 1 },
+        [5] = { Enabled = false, Delay = 1 },
+        [6] = { Enabled = false, Delay = 1 },
+        [7] = { Enabled = false, Delay = 1 },
+    },
 
     SpeedHack   = false,
     WalkSpeed   = 70,
@@ -191,16 +197,14 @@ TFarm:CreateSlider({ Name = "Field Radius", Range = { 10, 150 }, Increment = 5, 
     Callback = function(v) CFG.FieldRadius = v end })
 
 -- ── Items tab ──
-TItem:CreateSection("Auto Use Item")
-
-TItem:CreateToggle({ Name = "Auto Use Item", CurrentValue = false, Callback = function(v)
-    CFG.AutoItem = v
-end })
-
-TItem:CreateSlider({ Name = "Slot (1–7)", Range = { 1, 7 }, Increment = 1, CurrentValue = 1,
-    Callback = function(v) CFG.ItemSlot = v end })
-TItem:CreateSlider({ Name = "Use Speed (sec)", Range = { 0.1, 3 }, Increment = 0.1, CurrentValue = 0.7,
-    Callback = function(v) CFG.ItemSpeed = v end })
+for i = 1, 7 do
+    TItem:CreateSection("Slot " .. i)
+    TItem:CreateToggle({ Name = "Slot " .. i .. " Enabled", CurrentValue = false, Callback = function(v)
+        CFG.ItemSlots[i].Enabled = v
+    end })
+    TItem:CreateSlider({ Name = "Slot " .. i .. " Delay (sec)", Range = { 1, 300 }, Increment = 1, CurrentValue = 1,
+        Callback = function(v) CFG.ItemSlots[i].Delay = v end })
+end
 
 -- ── Positions tab ──
 TPos:CreateSection("⚠ Установи ДО фарма!")
@@ -294,7 +298,7 @@ task.spawn(function()
 end)
 
 -- ── 3. AUTO ITEM ──────────────────────────────────
--- Симулируем нажатие клавиш 1–7 через VirtualInputManager
+-- 7 независимых потоков, каждый слот со своей задержкой
 local SlotKeys = {
     [1] = Enum.KeyCode.One,
     [2] = Enum.KeyCode.Two,
@@ -305,20 +309,23 @@ local SlotKeys = {
     [7] = Enum.KeyCode.Seven,
 }
 
-task.spawn(function()
-    while task.wait(CFG.ItemSpeed) do
-        if CFG.AutoItem and not _converting then
-            local key = SlotKeys[CFG.ItemSlot]
-            if key then
-                pcall(function()
-                    VIM:SendKeyEvent(true,  key, false, game)
-                    task.wait(0.05)
-                    VIM:SendKeyEvent(false, key, false, game)
-                end)
+for i = 1, 7 do
+    task.spawn(function()
+        while true do
+            task.wait(CFG.ItemSlots[i].Delay)
+            if CFG.ItemSlots[i].Enabled and not _converting then
+                local key = SlotKeys[i]
+                if key then
+                    pcall(function()
+                        VIM:SendKeyEvent(true,  key, false, game)
+                        task.wait(0.05)
+                        VIM:SendKeyEvent(false, key, false, game)
+                    end)
+                end
             end
         end
-    end
-end)
+    end)
+end
 
 -- ── 4. AUTO CONVERT ───────────────────────────────
 local _converting = false

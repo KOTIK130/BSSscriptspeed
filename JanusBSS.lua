@@ -144,7 +144,7 @@ local function setFieldEvent(pos, eventType, duration)
     _eventTarget = pos
     _eventType   = eventType
     _eventExpiry = tick() + duration
-    debugLog("🎯 Event: " .. eventType .. " at " .. tostring(pos))
+
 end
 
 local function clearFieldEvent()

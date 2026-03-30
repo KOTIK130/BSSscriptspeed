@@ -76,12 +76,9 @@ local R = {
     ToolClick            = findRemote("toolClick"),
     TornadoEvents        = findRemote("tornadoEvents"),
     CloudEvents          = findRemote("cloudEvents"),
-    AddLeaves            = findRemote("addLeaves"),
-    RemoveLeaves         = findRemote("removeLeaves"),
     RemoveCorruption     = findRemote("removeCorruption"),
     SpawnSingleBloom     = findRemote("spawnSingleBloom"),
     PetalCollected       = findRemote("PetalCollected"),
-    PollenPackage        = findRemote("pollenPackage"),
     CreateDupedToken     = findRemote("createDupedToken"),
     PlayerActivesCommand = findRemote("PlayerActivesCommand"),
 }
@@ -224,7 +221,7 @@ TFarm:CreateSlider({ Name = "Snake Gap (studs)", Range = { 2, 20 }, Increment = 
     Callback = function(v) CFG.SnakeGap = v end })
 
 TFarm:CreateSection("ℹ Field Events (авто при AutoFarm)")
-TFarm:CreateParagraph({ Title = "Включённые события", Content = "🌪 Tornado walk\n🥥 Auto Coconut use\n🍃 Leaves collect\n🌸 Bloom walk\n📦 Pollen Package collect\n🪙 Duped Token collect\n🎯 Target Practice walk" })
+TFarm:CreateParagraph({ Title = "Включённые события", Content = "🌪 Tornado walk\n🥥 Auto Coconut use\n🌸 Bloom walk\n🪙 Duped Token collect\n🎯 Target Practice walk" })
 
 -- ── Items tab ──
 for i = 1, 7 do
@@ -678,27 +675,7 @@ task.spawn(function()
         end)
         if _eventTarget then continue end
 
-        -- ── 6f. SPARKLES / LEAVES — workspace.Flowers ──
-        pcall(function()
-            local flowers = workspace:FindFirstChild("Flowers")
-            if not flowers then return end
-            for _, child in ipairs(flowers:GetDescendants()) do
-                if child.Name == "Sparkles" or child.Name == "Leaf" or child.Name == "Leaves" then
-                    local parent = child.Parent
-                    if parent and parent:IsA("BasePart") then
-                        local sPos = parent.Position
-                        if isNearField(sPos) then
-                            setFieldEvent(
-                                Vector3.new(sPos.X, myPos.Y, sPos.Z),
-                                "🍃 Leaf/Sparkle",
-                                2
-                            )
-                            return
-                        end
-                    end
-                end
-            end
-        end)
+
     end
 end)
 
@@ -777,21 +754,7 @@ if R.CloudEvents and R.CloudEvents:IsA("RemoteEvent") then
     end)
 end
 
--- 8c. Add Leaves
-if R.AddLeaves and R.AddLeaves:IsA("RemoteEvent") then
-    R.AddLeaves.OnClientEvent:Connect(function(...)
-        local args = {...}
-        debugLog("📡 addLeaves received: " .. #args .. " args")
-        for i, v in ipairs(args) do
-            if typeof(v) == "Vector3" and isNearField(v) and CFG.AutoFarm then
-                setFieldEvent(Vector3.new(v.X, HRP and HRP.Position.Y or v.Y, v.Z), "🍃 Leaf (remote)", 3)
-                break
-            end
-        end
-    end)
-end
-
--- 8d. Remove Corruption
+-- 8c. Remove Corruption
 if R.RemoveCorruption and R.RemoveCorruption:IsA("RemoteEvent") then
     R.RemoveCorruption.OnClientEvent:Connect(function(...)
         debugLog("📡 removeCorruption received: " .. select("#", ...) .. " args")
@@ -819,21 +782,7 @@ if R.PetalCollected and R.PetalCollected:IsA("RemoteEvent") then
     end)
 end
 
--- 8g. Pollen Package
-if R.PollenPackage and R.PollenPackage:IsA("RemoteEvent") then
-    R.PollenPackage.OnClientEvent:Connect(function(...)
-        local args = {...}
-        debugLog("📡 pollenPackage received: " .. #args .. " args")
-        for _, v in ipairs(args) do
-            if typeof(v) == "Vector3" and isNearField(v) and CFG.AutoFarm then
-                setFieldEvent(Vector3.new(v.X, HRP and HRP.Position.Y or v.Y, v.Z), "📦 Pollen Package (remote)", 3)
-                break
-            end
-        end
-    end)
-end
-
--- 8h. Create Duped Token
+-- 8d. Create Duped Token
 if R.CreateDupedToken and R.CreateDupedToken:IsA("RemoteEvent") then
     R.CreateDupedToken.OnClientEvent:Connect(function(...)
         local args = {...}
@@ -853,5 +802,5 @@ debugLog("Remotes found:")
 for name, remote in pairs(R) do
     debugLog("  " .. name .. " = " .. tostring(remote ~= nil))
 end
-debugLog("Field events: Tornado, Coconut, Leaves, Bloom, Tokens, Target Practice")
+debugLog("Field events: Tornado, Coconut, Bloom, Tokens, Target Practice")
 debugLog("Auto Coconut Use: every 11s via PlayerActivesCommand")

@@ -1,5 +1,5 @@
 -- ════════════════════════════════════════════════════
---   BSS ULTIMATE FARM  v15  |  Field Events + Remotes
+--   BSS ULTIMATE FARM  v13  |  Все модули независимы
 -- ════════════════════════════════════════════════════
 
 local Players           = game:GetService("Players")
@@ -28,19 +28,18 @@ end
 local function saveLog()
     local ok, err = pcall(function()
         local content = table.concat(_logBuffer, "\n")
-        writefile("bss_debug_log.txt", content)
+        local filename = "bss_debug_log.txt"
+        writefile(filename, content)
+        return filename
     end)
     return ok, err
 end
 
 -- ─── Конфиг ──────────────────────────────────────
-local _converting = false
-
 local CFG = {
     AutoFarm    = false,
     FieldPos    = nil,
     FieldRadius = 45,
-    SnakeGap    = 8,
 
     AutoDig     = false,
 
@@ -73,12 +72,9 @@ local function findRemote(name)
 end
 
 local R = {
-    ToolClick            = findRemote("toolClick"),
-    TornadoEvents        = findRemote("tornadoEvents"),
-    CloudEvents          = findRemote("cloudEvents"),
-    SpawnSingleBloom     = findRemote("spawnSingleBloom"),
-    CreateDupedToken     = findRemote("createDupedToken"),
-    PlayerActivesCommand = findRemote("PlayerActivesCommand"),
+    ToolClick       = findRemote("toolClick"),
+    AbilityEvent    = findRemote("playerAbilityEvent"),
+    TokenEvent      = findRemote("tokenEvent"),
 }
 
 -- ─── Персонаж ────────────────────────────────────
@@ -96,6 +92,9 @@ loadChar()
 Player.CharacterAdded:Connect(function()
     task.wait(0.5)
     loadChar()
+    if CFG.SpeedHack and Hum then
+        Hum.WalkSpeed = CFG.WalkSpeed
+    end
 end)
 
 -- ─── Pollen ──────────────────────────────────────
@@ -133,49 +132,23 @@ local function getPollen()
     return ok and v or 0
 end
 
--- ─── Field Event System (shared state) ───────────
--- Используется сканером и змейкой для приоритетных событий на поле
-local _eventTarget   = nil   -- Vector3: куда идти (событие на поле)
-local _eventType     = ""    -- string: тип события (для дебага)
-local _eventExpiry   = 0     -- tick(): когда событие истечёт
-
-local function setFieldEvent(pos, eventType, duration)
-    duration = duration or 5
-    _eventTarget = pos
-    _eventType   = eventType
-    _eventExpiry = tick() + duration
-
-end
-
-local function clearFieldEvent()
-    _eventTarget = nil
-    _eventType   = ""
-    _eventExpiry = 0
-end
-
-local function isNearField(pos)
-    if not CFG.FieldPos then return false end
-    local dx = pos.X - CFG.FieldPos.X
-    local dz = pos.Z - CFG.FieldPos.Z
-    return math.sqrt(dx*dx + dz*dz) < CFG.FieldRadius * 2
-end
+-- (сканер токенов убран — используем змейку)
 
 -- ─── UI ──────────────────────────────────────────
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
 local Win = Rayfield:CreateWindow({
-    Name = "BSS ULTIMATE FARM v15",
+    Name = "BSS ULTIMATE FARM",
     ConfigurationSaving = { Enabled = false },
 })
 
-local TFarm  = Win:CreateTab("⚙ Farm",       4483362458)
-local TItem  = Win:CreateTab("🎒 Items",     4483362458)
-local TPos   = Win:CreateTab("📍 Positions", 4483362458)
-local TDebug = Win:CreateTab("🐛 Debug",     4483362458)
+local TFarm  = Win:CreateTab("⚙ Farm",        4483362458)
+local TItem  = Win:CreateTab("🎒 Items",      4483362458)
+local TPos   = Win:CreateTab("📍 Positions",  4483362458)
+local TDebug = Win:CreateTab("🐛 Debug",      4483362458)
 
 local ParaStatus = TFarm:CreateParagraph({ Title = "Status", Content = "● Idle" })
 local ParaPollen = TFarm:CreateParagraph({ Title = "Pollen", Content = "0.0%" })
-local ParaEvent  = TFarm:CreateParagraph({ Title = "Field Event", Content = "—" })
 
 local function setStatus(s)
     pcall(function() ParaStatus:Set({ Title = "Status", Content = s }) end)
@@ -184,7 +157,7 @@ end
 -- ── Farm tab ──
 TFarm:CreateSection("Auto Farm")
 
-TFarm:CreateToggle({ Name = "Auto Farm (Snake + Field Events)", CurrentValue = false, Callback = function(v)
+TFarm:CreateToggle({ Name = "Auto Farm (Tokens)", CurrentValue = false, Callback = function(v)
     CFG.AutoFarm = v
     setStatus(v and "● Farming..." or "● Idle")
 end })
@@ -202,24 +175,26 @@ end })
 
 TFarm:CreateSection("Speed Hack")
 
-TFarm:CreateToggle({ Name = "Speed Hack (CFrame)", CurrentValue = false, Callback = function(v)
+TFarm:CreateToggle({ Name = "Speed Hack", CurrentValue = false, Callback = function(v)
     CFG.SpeedHack = v
+    if Hum then
+        Hum.WalkSpeed = v and CFG.WalkSpeed or defaultSpeed
+    end
 end })
 
-TFarm:CreateSlider({ Name = "Speed", Range = { 16, 500 }, Increment = 1, CurrentValue = 70,
-    Callback = function(v) CFG.WalkSpeed = v end
+TFarm:CreateSlider({ Name = "WalkSpeed", Range = { 16, 500 }, Increment = 1, CurrentValue = 70,
+    Callback = function(v)
+        CFG.WalkSpeed = v
+        if CFG.SpeedHack and Hum then
+            Hum.WalkSpeed = v
+        end
+    end
 })
 
 TFarm:CreateSection("Farm Settings")
 
 TFarm:CreateSlider({ Name = "Field Radius", Range = { 10, 150 }, Increment = 5, CurrentValue = 45,
     Callback = function(v) CFG.FieldRadius = v end })
-
-TFarm:CreateSlider({ Name = "Snake Gap (studs)", Range = { 2, 20 }, Increment = 1, CurrentValue = 8,
-    Callback = function(v) CFG.SnakeGap = v end })
-
-TFarm:CreateSection("ℹ Field Events (авто при AutoFarm)")
-TFarm:CreateParagraph({ Title = "Включённые события", Content = "🌪 Tornado walk\n🥥 Auto Coconut use\n🌸 Bloom walk\n🪙 Duped Token collect\n🎯 Target Practice walk" })
 
 -- ── Items tab ──
 for i = 1, 7 do
@@ -248,18 +223,10 @@ end })
 TPos:CreateButton({ Name = "📍 Set Field  (встань в центр поля)", Callback = function()
     if not HRP then return end
     CFG.FieldPos = HRP.Position
+    _tokCache = {}
     local p = CFG.FieldPos
     FieldPara:Set({ Title = "Field ✓", Content = ("X:%.1f  Y:%.1f  Z:%.1f"):format(p.X, p.Y, p.Z) })
     Rayfield:Notify({ Title = "Поле ✓", Content = "Точка сохранена", Duration = 3 })
-end })
-
-TPos:CreateSection("Пресеты полей")
-
-TPos:CreateButton({ Name = "🕷 Spider Field (-46.6, 20.0, -10.2)", Callback = function()
-    CFG.FieldPos = Vector3.new(-46.6, 20.0, -10.2)
-    local p = CFG.FieldPos
-    FieldPara:Set({ Title = "Field ✓ (Spider)", Content = ("X:%.1f  Y:%.1f  Z:%.1f"):format(p.X, p.Y, p.Z) })
-    Rayfield:Notify({ Title = "🕷 Spider Field", Content = "Координаты установлены", Duration = 3 })
 end })
 
 TPos:CreateButton({ Name = "🗑 Сбросить точки", Callback = function()
@@ -299,16 +266,11 @@ TDebug:CreateButton({ Name = "📋 Показать последние 10 зап
     DebugPara:Set({ Title = "Лог (последние " .. #lines .. ")", Content = txt })
 end })
 
--- Обновление поллена + event
+-- Обновление поллена
 task.spawn(function()
     while task.wait(0.8) do
         pcall(function()
             ParaPollen:Set({ Title = "Pollen", Content = ("%.1f%%"):format(getPollen()) })
-            if _eventTarget then
-                ParaEvent:Set({ Title = "Field Event", Content = "🎯 " .. _eventType })
-            else
-                ParaEvent:Set({ Title = "Field Event", Content = "—" })
-            end
         end)
     end
 end)
@@ -317,35 +279,14 @@ end)
 --   МОДУЛИ — каждый полностью независим
 -- ════════════════════════════════════════════════════
 
--- ── 1. SPEED HACK (CFrame) ─────────────────────────
-do
-    RunService.Heartbeat:Connect(function(dt)
-        if not CFG.SpeedHack then return end
-        if _converting then return end
-        if CFG.AutoFarm then return end
-        if not HRP or not Hum or Hum.Health <= 0 then return end
-
-        local moveDir = Hum.MoveDirection
-        if moveDir.Magnitude < 0.01 then
-            pcall(function()
-                HRP.AssemblyLinearVelocity  = Vector3.new(0, HRP.AssemblyLinearVelocity.Y, 0)
-                HRP.AssemblyAngularVelocity = Vector3.zero
-            end)
-            return
+-- ── 1. SPEED HACK ─────────────────────────────────
+task.spawn(function()
+    while task.wait(0.5) do
+        if CFG.SpeedHack and Hum then
+            pcall(function() Hum.WalkSpeed = CFG.WalkSpeed end)
         end
-
-        local speed = CFG.WalkSpeed
-        local step  = speed * dt
-        local pos   = HRP.Position
-        local newPos = pos + moveDir * step
-
-        pcall(function()
-            HRP.CFrame = CFrame.new(newPos, newPos + moveDir)
-            HRP.AssemblyLinearVelocity  = Vector3.new(0, HRP.AssemblyLinearVelocity.Y, 0)
-            HRP.AssemblyAngularVelocity = Vector3.zero
-        end)
-    end)
-end
+    end
+end)
 
 -- ── 2. AUTO DIG ───────────────────────────────────
 task.spawn(function()
@@ -357,6 +298,7 @@ task.spawn(function()
 end)
 
 -- ── 3. AUTO ITEM ──────────────────────────────────
+-- 7 независимых потоков, каждый слот со своей задержкой
 local SlotKeys = {
     [1] = Enum.KeyCode.One,
     [2] = Enum.KeyCode.Two,
@@ -386,6 +328,7 @@ for i = 1, 7 do
 end
 
 -- ── 4. AUTO CONVERT ───────────────────────────────
+local _converting = false
 task.spawn(function()
     while task.wait(0.3) do
         if not CFG.AutoConvert then continue end
@@ -395,7 +338,7 @@ task.spawn(function()
 
         _converting = true
         debugLog("Convert START — pollen: " .. ("%.1f%%"):format(getPollen()))
-        setStatus("● конвертация")
+        setStatus("● Converting...")
 
         pcall(function()
             if not HRP then return end
@@ -433,12 +376,15 @@ task.spawn(function()
     end
 end)
 
--- ── 5. AUTO FARM — Змейка + Field Events ──────────
+-- ── 5. AUTO FARM — Змейка (Heartbeat + CFrame) ───
 do
-    local snakeDir   = 1
-    local snakeRow   = 0
-    local targetPos  = nil
-    local prevActive = false
+    local RS  = game:GetService("RunService")
+    local GAP = 8  -- расстояние между линиями змейки (studs)
+
+    -- Состояние змейки
+    local snakeDir = 1
+    local snakeRow = 0
+    local targetPos = nil
 
     local function buildTarget()
         if not CFG.FieldPos then return nil end
@@ -449,7 +395,7 @@ do
 
     local function nextRow()
         snakeDir = -snakeDir
-        snakeRow = snakeRow + CFG.SnakeGap
+        snakeRow = snakeRow + GAP
         if snakeRow > CFG.FieldRadius * 2 then
             snakeRow = 0
             debugLog("🐍 Snake: full cycle, restarting")
@@ -457,319 +403,61 @@ do
         targetPos = buildTarget()
     end
 
-    RunService.Heartbeat:Connect(function(dt)
+    local prevActive = false
+
+    RS.Heartbeat:Connect(function(dt)
+        -- Проверки
         if not CFG.AutoFarm or _converting then
             if prevActive then
                 prevActive = false
-                targetPos  = nil
+                targetPos = nil
             end
             return
         end
         if not HRP or not Hum or Hum.Health <= 0 then return end
         if not CFG.FieldPos then return end
 
-        -- Инициализация
+        -- Инициализация при включении
         if not targetPos then
-            snakeRow   = 0
-            snakeDir   = 1
-            targetPos  = buildTarget()
+            snakeRow = 0
+            snakeDir = 1
+            targetPos = buildTarget()
             prevActive = true
         end
-
-        -- Выбираем цель: событие на поле ИЛИ змейка
-        local currentTarget = targetPos
-
-        -- Проверяем field event
-        if _eventTarget then
-            if tick() > _eventExpiry then
-                clearFieldEvent()
-            else
-                currentTarget = _eventTarget
-            end
-        end
-
-        if not currentTarget then return end
+        if not targetPos then return end
 
         local myPos = HRP.Position
-        local dx = currentTarget.X - myPos.X
-        local dz = currentTarget.Z - myPos.Z
+        local tx, tz = targetPos.X, targetPos.Z
+        local dx, dz = tx - myPos.X, tz - myPos.Z
         local dist = math.sqrt(dx * dx + dz * dz)
 
-        -- Дошли до цели
-        if dist < 2 then
-            if _eventTarget then
-                -- Достигли события — очищаем
-                clearFieldEvent()
-            else
-                -- Достигли точки змейки — следующий ряд
-                nextRow()
-            end
+        if dist < 3 then
+            nextRow()
             return
         end
 
-        local speed = CFG.WalkSpeed
+        -- Скорость = установленная в слайдере (не зависит от токенов скорости)
+        local speed = CFG.SpeedHack and CFG.WalkSpeed or defaultSpeed
         local step  = math.min(speed * dt, dist)
-        local nx, nz = dx / dist, dz / dist
+        local nx, nz = dx / dist, dz / dist  -- нормализованный вектор
 
+        -- Новая позиция: X/Z по змейке, Y от текущей (следуем рельефу)
         local newX = myPos.X + nx * step
         local newZ = myPos.Z + nz * step
-        local newY = myPos.Y
+        local newY = myPos.Y  -- сохраняем текущую высоту
 
         pcall(function()
-            HRP.CFrame = CFrame.new(
-                Vector3.new(newX, newY, newZ),
-                Vector3.new(newX + nx, newY, newZ + nz)
-            )
-            HRP.AssemblyLinearVelocity  = Vector3.new(0, HRP.AssemblyLinearVelocity.Y, 0)
+            -- Поворот персонажа по направлению движения
+            local look = Vector3.new(nx, 0, nz)
+            HRP.CFrame = CFrame.new(Vector3.new(newX, newY, newZ), Vector3.new(newX + nx, newY, newZ + nz))
+
+            -- Обнуляем Velocity — убираем скольжение
+            HRP.AssemblyLinearVelocity = Vector3.new(0, HRP.AssemblyLinearVelocity.Y, 0)
             HRP.AssemblyAngularVelocity = Vector3.zero
         end)
     end)
 end
 
--- ── 6. FIELD EVENT SCANNER ────────────────────────
--- Сканирует workspace для событий на нашем поле
--- Автоматически активен когда AutoFarm = true
-task.spawn(function()
-    while task.wait(0.4) do
-        if not CFG.AutoFarm or _converting then continue end
-        if not CFG.FieldPos or not HRP then continue end
-
-        -- Уже есть активное событие — не перебиваем
-        if _eventTarget and tick() < _eventExpiry then continue end
-
-        local myPos = HRP.Position
-
-        -- ── 6a. TORNADO — workspace.Particles "Root"/"Plane" ──
-        pcall(function()
-            local particles = workspace:FindFirstChild("Particles")
-            if not particles then return end
-            for _, child in ipairs(particles:GetDescendants()) do
-                if (child.Name == "Root" or child.Name == "Plane") and child:IsA("BasePart") then
-                    local tPos = child.Position
-                    if isNearField(tPos) then
-                        setFieldEvent(
-                            Vector3.new(tPos.X, myPos.Y, tPos.Z),
-                            "🌪 Tornado",
-                            3
-                        )
-                        return
-                    end
-                end
-            end
-        end)
-        if _eventTarget then continue end
-
-        -- ── 6b. COCONUT INDICATOR — workspace children ──
-        -- Кокосы создают зелёный круг на поле (Part/MeshPart)
-        pcall(function()
-            for _, child in ipairs(workspace:GetChildren()) do
-                if child:IsA("Model") or child:IsA("BasePart") then
-                    local name = child.Name:lower()
-                    if name:find("coconut") or name:find("coco") then
-                        local pos
-                        if child:IsA("BasePart") then
-                            pos = child.Position
-                        elseif child:IsA("Model") and child.PrimaryPart then
-                            pos = child.PrimaryPart.Position
-                        elseif child:IsA("Model") then
-                            local pp = child:FindFirstChildWhichIsA("BasePart")
-                            if pp then pos = pp.Position end
-                        end
-                        if pos and isNearField(pos) then
-                            setFieldEvent(
-                                Vector3.new(pos.X, myPos.Y, pos.Z),
-                                "🥥 Coconut",
-                                4
-                            )
-                            return
-                        end
-                    end
-                end
-            end
-        end)
-        if _eventTarget then continue end
-
-        -- ── 6c. TARGET PRACTICE (Precise Bee) — кружочки на поле ──
-        -- Ищем объекты-мишени на нашем поле
-        pcall(function()
-            for _, child in ipairs(workspace:GetDescendants()) do
-                if child:IsA("BasePart") then
-                    local name = child.Name:lower()
-                    if (name:find("target") or name:find("bullseye") or name:find("precise")) then
-                        local tPos = child.Position
-                        if isNearField(tPos) then
-                            setFieldEvent(
-                                Vector3.new(tPos.X, myPos.Y, tPos.Z),
-                                "🎯 Target Practice",
-                                3
-                            )
-                            return
-                        end
-                    end
-                end
-            end
-        end)
-        if _eventTarget then continue end
-
-        -- ── 6d. BLOOM — workspace для bloom объектов ──
-        pcall(function()
-            for _, child in ipairs(workspace:GetDescendants()) do
-                if child:IsA("BasePart") then
-                    local name = child.Name:lower()
-                    if name:find("bloom") and not name:find("remove") then
-                        local bPos = child.Position
-                        if isNearField(bPos) then
-                            setFieldEvent(
-                                Vector3.new(bPos.X, myPos.Y, bPos.Z),
-                                "🌸 Bloom",
-                                3
-                            )
-                            return
-                        end
-                    end
-                end
-            end
-        end)
-        if _eventTarget then continue end
-
-        -- ── 6e. COLLECTIBLES (tokens, pollen packages, duped) ──
-        -- Собираем ближайшие токены НЕ являющиеся ability tokens
-        -- Ability tokens = "C" части в Collectibles (мы их НЕ трогаем)
-        pcall(function()
-            local collectibles = workspace:FindFirstChild("Collectibles")
-            if not collectibles then return end
-
-            local bestDist = 40
-            local bestPos  = nil
-            local bestName = ""
-
-            for _, token in ipairs(collectibles:GetChildren()) do
-                if not token:IsA("BasePart") then continue end
-
-                local tokenName = token.Name
-                -- Пропускаем ability tokens ("C") — по просьбе пользователя
-                if tokenName == "C" then continue end
-
-                local tPos = token.Position
-                -- Токен на нашем поле?
-                if not isNearField(tPos) then continue end
-
-                -- Расстояние от игрока
-                local d = (Vector3.new(tPos.X, 0, tPos.Z) - Vector3.new(myPos.X, 0, myPos.Z)).Magnitude
-                if d < bestDist and d > 3 then
-                    bestDist = d
-                    bestPos  = tPos
-                    bestName = tokenName
-                end
-            end
-
-            if bestPos then
-                setFieldEvent(
-                    Vector3.new(bestPos.X, myPos.Y, bestPos.Z),
-                    "🪙 Token: " .. bestName,
-                    2
-                )
-            end
-        end)
-        if _eventTarget then continue end
-
-
-    end
-end)
-
--- ── 7. AUTO COCONUT USE ───────────────────────────
--- Автоматически использует кокос каждые 11 секунд через PlayerActivesCommand
-task.spawn(function()
-    while task.wait(11) do
-        if not CFG.AutoFarm or _converting then continue end
-        if not R.PlayerActivesCommand then continue end
-        pcall(function()
-            local args = { ["Name"] = "Coconut" }
-            if R.PlayerActivesCommand:IsA("RemoteFunction") then
-                R.PlayerActivesCommand:InvokeServer(args)
-            else
-                R.PlayerActivesCommand:FireServer(args)
-            end
-            debugLog("🥥 Auto Coconut used")
-        end)
-    end
-end)
-
--- ── 8. REMOTE EVENT LISTENERS ─────────────────────
--- Слушаем серверные события для логирования и реакции
--- Все события автоматически активны (не нужны отдельные тогглы)
-
--- 8a. Tornado Events
-if R.TornadoEvents and R.TornadoEvents:IsA("RemoteEvent") then
-    R.TornadoEvents.OnClientEvent:Connect(function(...)
-        local args = {...}
-        for _, v in ipairs(args) do
-            if typeof(v) == "Vector3" and isNearField(v) and CFG.AutoFarm then
-                setFieldEvent(Vector3.new(v.X, HRP and HRP.Position.Y or v.Y, v.Z), "🌪 Tornado", 4)
-                break
-            elseif typeof(v) == "CFrame" and isNearField(v.Position) and CFG.AutoFarm then
-                local p = v.Position
-                setFieldEvent(Vector3.new(p.X, HRP and HRP.Position.Y or p.Y, p.Z), "🌪 Tornado", 4)
-                break
-            end
-        end
-    end)
-end
-
--- 8b. Cloud Events (Coconut Combo position)
-if R.CloudEvents and R.CloudEvents:IsA("RemoteEvent") then
-    R.CloudEvents.OnClientEvent:Connect(function(...)
-        local args = {...}
-        for _, v in ipairs(args) do
-            if typeof(v) == "Vector3" and isNearField(v) and CFG.AutoFarm then
-                setFieldEvent(Vector3.new(v.X, HRP and HRP.Position.Y or v.Y, v.Z), "🥥 Coconut Combo", 5)
-                break
-            elseif typeof(v) == "CFrame" and isNearField(v.Position) and CFG.AutoFarm then
-                local p = v.Position
-                setFieldEvent(Vector3.new(p.X, HRP and HRP.Position.Y or p.Y, p.Z), "🥥 Coconut Combo", 5)
-                break
-            elseif type(v) == "table" and v.Position and typeof(v.Position) == "Vector3" and isNearField(v.Position) then
-                local p = v.Position
-                if CFG.AutoFarm then
-                    setFieldEvent(Vector3.new(p.X, HRP and HRP.Position.Y or p.Y, p.Z), "🥥 Coconut Combo", 5)
-                end
-                break
-            end
-        end
-    end)
-end
-
--- 8c. Spawn Single Bloom
-if R.SpawnSingleBloom and R.SpawnSingleBloom:IsA("RemoteEvent") then
-    R.SpawnSingleBloom.OnClientEvent:Connect(function(...)
-        local args = {...}
-        for _, v in ipairs(args) do
-            if typeof(v) == "Vector3" and isNearField(v) and CFG.AutoFarm then
-                setFieldEvent(Vector3.new(v.X, HRP and HRP.Position.Y or v.Y, v.Z), "🌸 Bloom", 4)
-                break
-            end
-        end
-    end)
-end
-
--- 8d. Create Duped Token
-if R.CreateDupedToken and R.CreateDupedToken:IsA("RemoteEvent") then
-    R.CreateDupedToken.OnClientEvent:Connect(function(...)
-        local args = {...}
-        for _, v in ipairs(args) do
-            if typeof(v) == "Vector3" and isNearField(v) and CFG.AutoFarm then
-                setFieldEvent(Vector3.new(v.X, HRP and HRP.Position.Y or v.Y, v.Z), "🪙 Duped Token", 3)
-                break
-            end
-        end
-    end)
-end
-
 -- ════════════════════════════════════════════════════
-debugLog("✅ v15 загружен — Field Events + Auto Remotes + Snake")
-debugLog("Remotes found:")
-for name, remote in pairs(R) do
-    debugLog("  " .. name .. " = " .. tostring(remote ~= nil))
-end
-debugLog("Field events: Tornado, Coconut, Bloom, Tokens, Target Practice")
-debugLog("Auto Coconut Use: every 11s via PlayerActivesCommand")
+debugLog("✅ Скрипт загружен! v13 — Snake Heartbeat + AntiSlide")
+debugLog("Remotes: ToolClick=" .. tostring(R.ToolClick ~= nil))

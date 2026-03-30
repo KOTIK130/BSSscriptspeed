@@ -76,9 +76,7 @@ local R = {
     ToolClick            = findRemote("toolClick"),
     TornadoEvents        = findRemote("tornadoEvents"),
     CloudEvents          = findRemote("cloudEvents"),
-    RemoveCorruption     = findRemote("removeCorruption"),
     SpawnSingleBloom     = findRemote("spawnSingleBloom"),
-    PetalCollected       = findRemote("PetalCollected"),
     CreateDupedToken     = findRemote("createDupedToken"),
     PlayerActivesCommand = findRemote("PlayerActivesCommand"),
 }
@@ -705,18 +703,13 @@ end)
 if R.TornadoEvents and R.TornadoEvents:IsA("RemoteEvent") then
     R.TornadoEvents.OnClientEvent:Connect(function(...)
         local args = {...}
-        debugLog("📡 tornadoEvents received: " .. #args .. " args")
-        for i, v in ipairs(args) do
-            debugLog("  arg[" .. i .. "] = " .. tostring(v))
-        end
-        -- Если аргумент — позиция (Vector3/CFrame), используем его
         for _, v in ipairs(args) do
             if typeof(v) == "Vector3" and isNearField(v) and CFG.AutoFarm then
-                setFieldEvent(Vector3.new(v.X, HRP and HRP.Position.Y or v.Y, v.Z), "🌪 Tornado (remote)", 4)
+                setFieldEvent(Vector3.new(v.X, HRP and HRP.Position.Y or v.Y, v.Z), "🌪 Tornado", 4)
                 break
             elseif typeof(v) == "CFrame" and isNearField(v.Position) and CFG.AutoFarm then
                 local p = v.Position
-                setFieldEvent(Vector3.new(p.X, HRP and HRP.Position.Y or p.Y, p.Z), "🌪 Tornado (remote)", 4)
+                setFieldEvent(Vector3.new(p.X, HRP and HRP.Position.Y or p.Y, p.Z), "🌪 Tornado", 4)
                 break
             end
         end
@@ -727,58 +720,35 @@ end
 if R.CloudEvents and R.CloudEvents:IsA("RemoteEvent") then
     R.CloudEvents.OnClientEvent:Connect(function(...)
         local args = {...}
-        debugLog("📡 cloudEvents received: " .. #args .. " args")
-        for i, v in ipairs(args) do
-            debugLog("  arg[" .. i .. "] = " .. tostring(v))
-        end
-        -- Попробуем извлечь позицию из аргументов
         for _, v in ipairs(args) do
             if typeof(v) == "Vector3" and isNearField(v) and CFG.AutoFarm then
-                setFieldEvent(Vector3.new(v.X, HRP and HRP.Position.Y or v.Y, v.Z), "🥥 Coconut Combo (remote)", 5)
+                setFieldEvent(Vector3.new(v.X, HRP and HRP.Position.Y or v.Y, v.Z), "🥥 Coconut Combo", 5)
                 break
             elseif typeof(v) == "CFrame" and isNearField(v.Position) and CFG.AutoFarm then
                 local p = v.Position
-                setFieldEvent(Vector3.new(p.X, HRP and HRP.Position.Y or p.Y, p.Z), "🥥 Coconut Combo (remote)", 5)
+                setFieldEvent(Vector3.new(p.X, HRP and HRP.Position.Y or p.Y, p.Z), "🥥 Coconut Combo", 5)
                 break
-            elseif type(v) == "table" then
-                -- Может быть таблица с позицией
-                if v.Position and typeof(v.Position) == "Vector3" and isNearField(v.Position) then
-                    local p = v.Position
-                    if CFG.AutoFarm then
-                        setFieldEvent(Vector3.new(p.X, HRP and HRP.Position.Y or p.Y, p.Z), "🥥 Coconut Combo (remote)", 5)
-                    end
-                    break
+            elseif type(v) == "table" and v.Position and typeof(v.Position) == "Vector3" and isNearField(v.Position) then
+                local p = v.Position
+                if CFG.AutoFarm then
+                    setFieldEvent(Vector3.new(p.X, HRP and HRP.Position.Y or p.Y, p.Z), "🥥 Coconut Combo", 5)
                 end
+                break
             end
         end
     end)
 end
 
--- 8c. Remove Corruption
-if R.RemoveCorruption and R.RemoveCorruption:IsA("RemoteEvent") then
-    R.RemoveCorruption.OnClientEvent:Connect(function(...)
-        debugLog("📡 removeCorruption received: " .. select("#", ...) .. " args")
-    end)
-end
-
--- 8e. Spawn Single Bloom
+-- 8c. Spawn Single Bloom
 if R.SpawnSingleBloom and R.SpawnSingleBloom:IsA("RemoteEvent") then
     R.SpawnSingleBloom.OnClientEvent:Connect(function(...)
         local args = {...}
-        debugLog("📡 spawnSingleBloom received: " .. #args .. " args")
         for _, v in ipairs(args) do
             if typeof(v) == "Vector3" and isNearField(v) and CFG.AutoFarm then
-                setFieldEvent(Vector3.new(v.X, HRP and HRP.Position.Y or v.Y, v.Z), "🌸 Bloom (remote)", 4)
+                setFieldEvent(Vector3.new(v.X, HRP and HRP.Position.Y or v.Y, v.Z), "🌸 Bloom", 4)
                 break
             end
         end
-    end)
-end
-
--- 8f. Petal Collected
-if R.PetalCollected and R.PetalCollected:IsA("RemoteEvent") then
-    R.PetalCollected.OnClientEvent:Connect(function(...)
-        debugLog("📡 PetalCollected received: " .. select("#", ...) .. " args")
     end)
 end
 
@@ -786,10 +756,9 @@ end
 if R.CreateDupedToken and R.CreateDupedToken:IsA("RemoteEvent") then
     R.CreateDupedToken.OnClientEvent:Connect(function(...)
         local args = {...}
-        debugLog("📡 createDupedToken received: " .. #args .. " args")
         for _, v in ipairs(args) do
             if typeof(v) == "Vector3" and isNearField(v) and CFG.AutoFarm then
-                setFieldEvent(Vector3.new(v.X, HRP and HRP.Position.Y or v.Y, v.Z), "🪙 Duped Token (remote)", 3)
+                setFieldEvent(Vector3.new(v.X, HRP and HRP.Position.Y or v.Y, v.Z), "🪙 Duped Token", 3)
                 break
             end
         end

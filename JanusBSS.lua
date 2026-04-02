@@ -1,10 +1,11 @@
 -- ════════════════════════════════════════════════════
---   BSS ULTIMATE FARM  v15  |  Remotes убраны, Convert = CFrame flight
+--   BSS ULTIMATE FARM  v15  |  Remotes убраны, Convert без ожидания
 -- ════════════════════════════════════════════════════
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService      = game:GetService("TweenService")
 local VIM               = game:GetService("VirtualInputManager")
 
 local Player  = Players.LocalPlayer
@@ -45,7 +46,7 @@ local CFG = {
 
     AutoConvert  = false,
     HivePos      = nil,
-    ConvertSpeed = 150,       -- скорость полёта к улью и обратно (studs/sec)
+    ConvertSpeed = 150,
 
     ItemSlots   = {
         [1] = { Enabled = false, Delay = 1 },
@@ -61,7 +62,7 @@ local CFG = {
     WalkSpeed   = 70,
 }
 
--- ─── Ремоты (только toolClick для AutoDig) ───────
+-- ─── Ремот (только toolClick для AutoDig) ────────
 local R_ToolClick = ReplicatedStorage:FindFirstChild("toolClick", true)
 if R_ToolClick then
     debugLog("Remote OK: toolClick (" .. R_ToolClick.ClassName .. ")")
@@ -76,7 +77,7 @@ local function loadChar()
     Char = Player.Character or Player.CharacterAdded:Wait()
     HRP  = Char:WaitForChild("HumanoidRootPart")
     Hum  = Char:WaitForChild("Humanoid")
-    _converting = false   -- сброс флага при респавне
+    _converting = false
 end
 loadChar()
 
@@ -120,49 +121,6 @@ local function getPollen()
     return ok and v or 0
 end
 
--- ─── CFrame Flight Helper ────────────────────────
--- Летит из текущей позиции к target со скоростью speed (studs/sec)
--- Через Heartbeat CFrame, без Tween — чистый полёт
-local function cframeFlyTo(target, speed)
-    if not HRP then return false end
-    local arrived = false
-    local conn
-    conn = RunService.Heartbeat:Connect(function(dt)
-        if not HRP or not HRP.Parent then
-            arrived = true
-            conn:Disconnect()
-            return
-        end
-        local pos = HRP.Position
-        local diff = target - pos
-        local dist = diff.Magnitude
-        if dist < 3 then
-            pcall(function()
-                HRP.CFrame = CFrame.new(target, target + diff.Unit)
-            end)
-            arrived = true
-            conn:Disconnect()
-            return
-        end
-        local dir = diff.Unit
-        local step = math.min(speed * dt, dist)
-        local newPos = pos + dir * step
-        pcall(function()
-            HRP.CFrame = CFrame.new(newPos, newPos + dir)
-            HRP.AssemblyLinearVelocity  = Vector3.zero
-            HRP.AssemblyAngularVelocity = Vector3.zero
-        end)
-    end)
-    -- ждём прибытия, с таймаутом 30 сек
-    local elapsed = 0
-    while not arrived and elapsed < 30 do
-        task.wait(0.1)
-        elapsed = elapsed + 0.1
-    end
-    if conn.Connected then conn:Disconnect() end
-    return arrived
-end
-
 -- ─── UI ──────────────────────────────────────────
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
@@ -202,9 +160,9 @@ TFarm:CreateToggle({ Name = "Auto Convert  ⚠ нужны точки!", CurrentV
     end
 end })
 
-TFarm:CreateSection("Convert Flight")
+TFarm:CreateSection("Convert Settings")
 
-TFarm:CreateSlider({ Name = "Convert Flight Speed", Range = { 50, 500 }, Increment = 10, CurrentValue = 150,
+TFarm:CreateSlider({ Name = "Convert Flight Speed (studs/s)", Range = { 50, 500 }, Increment = 10, CurrentValue = 150,
     Callback = function(v) CFG.ConvertSpeed = v end
 })
 
@@ -295,7 +253,7 @@ TDebug:CreateButton({ Name = "📋 Показать последние 10 зап
     DebugPara:Set({ Title = "Лог (последние " .. #lines .. ")", Content = txt })
 end })
 
--- Обновление поллена в UI
+-- Обновление поллена
 task.spawn(function()
     while task.wait(0.8) do
         pcall(function()
@@ -381,9 +339,9 @@ for i = 1, 7 do
     end)
 end
 
--- ── 4. AUTO CONVERT (CFrame Flight) ──────────────
---   pollen >= 99%  →  летим к HivePos  →  жмём E  →  летим к FieldPos
---   без ожидания конвертации, без кулдаунов
+-- ── 4. AUTO CONVERT (Tween CFrame, без ожидания) ─
+--   Оригинальный v14 конверт на TweenService
+--   Изменения: убран repeat/until ожидания, добавлена ConvertSpeed
 task.spawn(function()
     while task.wait(0.3) do
         if not CFG.AutoConvert then continue end
@@ -395,34 +353,45 @@ task.spawn(function()
         debugLog("Convert START — pollen: " .. ("%.1f%%"):format(getPollen()))
         setStatus("● конвертация → полёт к улью")
 
-        -- Сохраняем Y-поворот персонажа
+        -- Сохраняем Y-поворот
         local savedRotY = 0
         if HRP then
             local _, ry, _ = HRP.CFrame:ToEulerAnglesYXZ()
             savedRotY = ry
         end
 
-        -- Летим к улью
-        local arrivedHive = cframeFlyTo(CFG.HivePos, CFG.ConvertSpeed)
+        -- Летим к улью (Tween)
+        pcall(function()
+            if not HRP then return end
+            local dist = (HRP.Position - CFG.HivePos).Magnitude
+            local speed = CFG.ConvertSpeed
+            local t = TweenInfo.new(math.max(dist / speed, 0.1), Enum.EasingStyle.Linear)
+            local tw = TweenService:Create(HRP, t, { CFrame = CFrame.new(CFG.HivePos) * CFrame.Angles(0, savedRotY, 0) })
+            tw:Play()
+            tw.Completed:Wait()
+        end)
 
-        if arrivedHive and HRP and HRP.Parent then
-            -- Восстанавливаем ориентацию + 1 нажатие E
-            pcall(function()
-                HRP.CFrame = CFrame.new(CFG.HivePos) * CFrame.Angles(0, savedRotY, 0)
-            end)
-            task.wait(0.15)
+        task.wait(0.15)
 
-            VIM:SendKeyEvent(true,  Enum.KeyCode.E, false, game)
-            task.wait(0.15)
-            VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+        -- 1 нажатие E
+        VIM:SendKeyEvent(true,  Enum.KeyCode.E, false, game)
+        task.wait(0.15)
+        VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
 
-            task.wait(0.1)
-        end
+        task.wait(0.1)
 
-        -- Возврат на поле
+        -- Сразу назад на поле (без ожидания конвертации)
         if CFG.FieldPos then
             setStatus("● конвертация → возврат")
-            cframeFlyTo(CFG.FieldPos, CFG.ConvertSpeed)
+            pcall(function()
+                if not HRP then return end
+                local dist = (HRP.Position - CFG.FieldPos).Magnitude
+                local speed = CFG.ConvertSpeed
+                local t = TweenInfo.new(math.max(dist / speed, 0.1), Enum.EasingStyle.Linear)
+                local tw = TweenService:Create(HRP, t, { CFrame = CFrame.new(CFG.FieldPos) * CFrame.Angles(0, savedRotY, 0) })
+                tw:Play()
+                tw.Completed:Wait()
+            end)
         end
 
         _converting = false
@@ -503,4 +472,4 @@ do
 end
 
 -- ════════════════════════════════════════════════════
-debugLog("✅ v15 загружен — Remotes убраны, Convert = CFrame flight")
+debugLog("✅ v15 загружен — Remotes убраны, Convert = Tween без ожидания")

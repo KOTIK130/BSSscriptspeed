@@ -376,7 +376,7 @@ task.spawn(function()
             task.wait(0.15)
             VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
         end)
-        task.wait(0.2)
+        task.wait(5)
 
         -- Летим обратно на поле
         if CFG.FieldPos then

@@ -1,5 +1,5 @@
 -- ════════════════════════════════════════════════════
---   BSS ULTIMATE FARM  v15  |  Remotes убраны, Convert без ожидания
+--   BSS ULTIMATE FARM  v13  |  Все модули независимы
 -- ════════════════════════════════════════════════════
 
 local Players           = game:GetService("Players")
@@ -28,25 +28,23 @@ end
 local function saveLog()
     local ok, err = pcall(function()
         local content = table.concat(_logBuffer, "\n")
-        writefile("bss_debug_log.txt", content)
+        local filename = "bss_debug_log.txt"
+        writefile(filename, content)
+        return filename
     end)
     return ok, err
 end
 
 -- ─── Конфиг ──────────────────────────────────────
-local _converting = false
-
 local CFG = {
     AutoFarm    = false,
     FieldPos    = nil,
     FieldRadius = 45,
-    SnakeGap    = 8,
 
     AutoDig     = false,
 
-    AutoConvert  = false,
-    HivePos      = nil,
-    ConvertSpeed = 150,
+    AutoConvert = false,
+    HivePos     = nil,
 
     ItemSlots   = {
         [1] = { Enabled = false, Delay = 1 },
@@ -62,28 +60,41 @@ local CFG = {
     WalkSpeed   = 70,
 }
 
--- ─── Ремот (только toolClick для AutoDig) ────────
-local R_ToolClick = ReplicatedStorage:FindFirstChild("toolClick", true)
-if R_ToolClick then
-    debugLog("Remote OK: toolClick (" .. R_ToolClick.ClassName .. ")")
-else
-    debugLog("⚠ Remote NOT FOUND: toolClick")
+-- ─── Ремоты ──────────────────────────────────────
+local function findRemote(name)
+    local r = ReplicatedStorage:FindFirstChild(name, true)
+    if r then
+        debugLog("Remote OK: " .. name .. " (" .. r.ClassName .. ")")
+    else
+        debugLog("⚠ Remote NOT FOUND: " .. name)
+    end
+    return r
 end
+
+local R = {
+    ToolClick       = findRemote("toolClick"),
+    AbilityEvent    = findRemote("playerAbilityEvent"),
+    TokenEvent      = findRemote("tokenEvent"),
+}
 
 -- ─── Персонаж ────────────────────────────────────
 local Char, HRP, Hum
+local defaultSpeed = 16
 
 local function loadChar()
     Char = Player.Character or Player.CharacterAdded:Wait()
     HRP  = Char:WaitForChild("HumanoidRootPart")
     Hum  = Char:WaitForChild("Humanoid")
-    _converting = false
+    defaultSpeed = Hum.WalkSpeed
 end
 loadChar()
 
 Player.CharacterAdded:Connect(function()
     task.wait(0.5)
     loadChar()
+    if CFG.SpeedHack and Hum then
+        Hum.WalkSpeed = CFG.WalkSpeed
+    end
 end)
 
 -- ─── Pollen ──────────────────────────────────────
@@ -97,7 +108,7 @@ local function findPollenLabel()
             if (c:IsA("TextLabel") or c:IsA("TextBox")) then
                 local t = (c.Text or ""):gsub("[,%s]", "")
                 local a, b = t:match("^(%d+)/(%d+)$")
-                if a and b and tonumber(b) > 0 then
+                if a and b and tonumber(b) > 100000 then
                     _pollenCache = c; return c
                 end
             end
@@ -121,18 +132,20 @@ local function getPollen()
     return ok and v or 0
 end
 
+-- (сканер токенов убран — используем змейку)
+
 -- ─── UI ──────────────────────────────────────────
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
 local Win = Rayfield:CreateWindow({
-    Name = "BSS ULTIMATE FARM v15",
+    Name = "BSS ULTIMATE FARM",
     ConfigurationSaving = { Enabled = false },
 })
 
-local TFarm   = Win:CreateTab("⚙ Farm",       4483362458)
-local TItem   = Win:CreateTab("🎒 Items",     4483362458)
-local TPos    = Win:CreateTab("📍 Positions", 4483362458)
-local TDebug  = Win:CreateTab("🐛 Debug",     4483362458)
+local TFarm  = Win:CreateTab("⚙ Farm",        4483362458)
+local TItem  = Win:CreateTab("🎒 Items",      4483362458)
+local TPos   = Win:CreateTab("📍 Positions",  4483362458)
+local TDebug = Win:CreateTab("🐛 Debug",      4483362458)
 
 local ParaStatus = TFarm:CreateParagraph({ Title = "Status", Content = "● Idle" })
 local ParaPollen = TFarm:CreateParagraph({ Title = "Pollen", Content = "0.0%" })
@@ -144,7 +157,7 @@ end
 -- ── Farm tab ──
 TFarm:CreateSection("Auto Farm")
 
-TFarm:CreateToggle({ Name = "Auto Farm (Snake)", CurrentValue = false, Callback = function(v)
+TFarm:CreateToggle({ Name = "Auto Farm (Tokens)", CurrentValue = false, Callback = function(v)
     CFG.AutoFarm = v
     setStatus(v and "● Farming..." or "● Idle")
 end })
@@ -160,29 +173,28 @@ TFarm:CreateToggle({ Name = "Auto Convert  ⚠ нужны точки!", CurrentV
     end
 end })
 
-TFarm:CreateSection("Convert Settings")
-
-TFarm:CreateSlider({ Name = "Convert Flight Speed (studs/s)", Range = { 50, 500 }, Increment = 10, CurrentValue = 150,
-    Callback = function(v) CFG.ConvertSpeed = v end
-})
-
 TFarm:CreateSection("Speed Hack")
 
-TFarm:CreateToggle({ Name = "Speed Hack (CFrame)", CurrentValue = false, Callback = function(v)
+TFarm:CreateToggle({ Name = "Speed Hack", CurrentValue = false, Callback = function(v)
     CFG.SpeedHack = v
+    if Hum then
+        Hum.WalkSpeed = v and CFG.WalkSpeed or defaultSpeed
+    end
 end })
 
-TFarm:CreateSlider({ Name = "Speed", Range = { 16, 500 }, Increment = 1, CurrentValue = 70,
-    Callback = function(v) CFG.WalkSpeed = v end
+TFarm:CreateSlider({ Name = "WalkSpeed", Range = { 16, 500 }, Increment = 1, CurrentValue = 70,
+    Callback = function(v)
+        CFG.WalkSpeed = v
+        if CFG.SpeedHack and Hum then
+            Hum.WalkSpeed = v
+        end
+    end
 })
 
 TFarm:CreateSection("Farm Settings")
 
 TFarm:CreateSlider({ Name = "Field Radius", Range = { 10, 150 }, Increment = 5, CurrentValue = 45,
     Callback = function(v) CFG.FieldRadius = v end })
-
-TFarm:CreateSlider({ Name = "Snake Gap (studs)", Range = { 2, 20 }, Increment = 1, CurrentValue = 8,
-    Callback = function(v) CFG.SnakeGap = v end })
 
 -- ── Items tab ──
 for i = 1, 7 do
@@ -191,7 +203,7 @@ for i = 1, 7 do
         CFG.ItemSlots[i].Enabled = v
     end })
     TItem:CreateSlider({ Name = "Slot " .. i .. " Delay (sec)", Range = { 1, 300 }, Increment = 1, CurrentValue = 1,
-        Callback = function(v) CFG.ItemSlots[i].Delay = math.max(v, 0.1) end })
+        Callback = function(v) CFG.ItemSlots[i].Delay = v end })
 end
 
 -- ── Positions tab ──
@@ -211,6 +223,7 @@ end })
 TPos:CreateButton({ Name = "📍 Set Field  (встань в центр поля)", Callback = function()
     if not HRP then return end
     CFG.FieldPos = HRP.Position
+    _tokCache = {}
     local p = CFG.FieldPos
     FieldPara:Set({ Title = "Field ✓", Content = ("X:%.1f  Y:%.1f  Z:%.1f"):format(p.X, p.Y, p.Z) })
     Rayfield:Notify({ Title = "Поле ✓", Content = "Точка сохранена", Duration = 3 })
@@ -263,54 +276,29 @@ task.spawn(function()
 end)
 
 -- ════════════════════════════════════════════════════
---   МОДУЛИ
+--   МОДУЛИ — каждый полностью независим
 -- ════════════════════════════════════════════════════
 
--- ── 1. SPEED HACK (CFrame) ─────────────────────────
-do
-    RunService.Heartbeat:Connect(function(dt)
-        if not CFG.SpeedHack then return end
-        if _converting then return end
-        if CFG.AutoFarm then return end
-        if not HRP or not Hum or Hum.Health <= 0 then return end
-
-        local moveDir = Hum.MoveDirection
-        if moveDir.Magnitude < 0.01 then
-            pcall(function()
-                HRP.AssemblyLinearVelocity  = Vector3.new(0, HRP.AssemblyLinearVelocity.Y, 0)
-                HRP.AssemblyAngularVelocity = Vector3.zero
-            end)
-            return
+-- ── 1. SPEED HACK ─────────────────────────────────
+task.spawn(function()
+    while task.wait(0.5) do
+        if CFG.SpeedHack and Hum then
+            pcall(function() Hum.WalkSpeed = CFG.WalkSpeed end)
         end
-
-        local step = CFG.WalkSpeed * dt
-        local pos  = HRP.Position
-        local newPos = pos + moveDir * step
-
-        pcall(function()
-            HRP.CFrame = CFrame.new(newPos, newPos + moveDir)
-            HRP.AssemblyLinearVelocity  = Vector3.new(0, HRP.AssemblyLinearVelocity.Y, 0)
-            HRP.AssemblyAngularVelocity = Vector3.zero
-        end)
-    end)
-end
+    end
+end)
 
 -- ── 2. AUTO DIG ───────────────────────────────────
 task.spawn(function()
     while task.wait(0.1) do
-        if CFG.AutoDig and R_ToolClick then
-            pcall(function()
-                if R_ToolClick:IsA("RemoteFunction") then
-                    R_ToolClick:InvokeServer()
-                elseif R_ToolClick:IsA("RemoteEvent") then
-                    R_ToolClick:FireServer()
-                end
-            end)
+        if CFG.AutoDig and R.ToolClick then
+            pcall(function() R.ToolClick:InvokeServer() end)
         end
     end
 end)
 
 -- ── 3. AUTO ITEM ──────────────────────────────────
+-- 7 независимых потоков, каждый слот со своей задержкой
 local SlotKeys = {
     [1] = Enum.KeyCode.One,
     [2] = Enum.KeyCode.Two,
@@ -324,7 +312,7 @@ local SlotKeys = {
 for i = 1, 7 do
     task.spawn(function()
         while true do
-            task.wait(math.max(CFG.ItemSlots[i].Delay, 0.1))
+            task.wait(CFG.ItemSlots[i].Delay)
             if CFG.ItemSlots[i].Enabled and not _converting then
                 local key = SlotKeys[i]
                 if key then
@@ -339,9 +327,8 @@ for i = 1, 7 do
     end)
 end
 
--- ── 4. AUTO CONVERT (Tween CFrame, без ожидания) ─
---   Оригинальный v14 конверт на TweenService
---   Изменения: убран repeat/until ожидания, добавлена ConvertSpeed
+-- ── 4. AUTO CONVERT ───────────────────────────────
+local _converting = false
 task.spawn(function()
     while task.wait(0.3) do
         if not CFG.AutoConvert then continue end
@@ -351,44 +338,33 @@ task.spawn(function()
 
         _converting = true
         debugLog("Convert START — pollen: " .. ("%.1f%%"):format(getPollen()))
-        setStatus("● конвертация → полёт к улью")
+        setStatus("● Converting...")
 
-        -- Сохраняем Y-поворот
-        local savedRotY = 0
-        if HRP then
-            local _, ry, _ = HRP.CFrame:ToEulerAnglesYXZ()
-            savedRotY = ry
-        end
-
-        -- Летим к улью (Tween)
         pcall(function()
             if not HRP then return end
             local dist = (HRP.Position - CFG.HivePos).Magnitude
-            local speed = CFG.ConvertSpeed
-            local t = TweenInfo.new(math.max(dist / speed, 0.1), Enum.EasingStyle.Linear)
-            local tw = TweenService:Create(HRP, t, { CFrame = CFrame.new(CFG.HivePos) * CFrame.Angles(0, savedRotY, 0) })
+            local t = TweenInfo.new(math.max(dist / 60, 0.1), Enum.EasingStyle.Linear)
+            local tw = TweenService:Create(HRP, t, { CFrame = CFrame.new(CFG.HivePos) })
             tw:Play()
             tw.Completed:Wait()
         end)
 
-        task.wait(0.15)
+        task.wait(0.3)
 
-        -- 1 нажатие E
         VIM:SendKeyEvent(true,  Enum.KeyCode.E, false, game)
         task.wait(0.15)
         VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
 
-        task.wait(0.1)
+        local waited = 0
+        repeat task.wait(0.3); waited += 0.3
+        until getPollen() < 3 or waited > 30
 
-        -- Сразу назад на поле (без ожидания конвертации)
         if CFG.FieldPos then
-            setStatus("● конвертация → возврат")
             pcall(function()
                 if not HRP then return end
                 local dist = (HRP.Position - CFG.FieldPos).Magnitude
-                local speed = CFG.ConvertSpeed
-                local t = TweenInfo.new(math.max(dist / speed, 0.1), Enum.EasingStyle.Linear)
-                local tw = TweenService:Create(HRP, t, { CFrame = CFrame.new(CFG.FieldPos) * CFrame.Angles(0, savedRotY, 0) })
+                local t = TweenInfo.new(math.max(dist / 60, 0.1), Enum.EasingStyle.Linear)
+                local tw = TweenService:Create(HRP, t, { CFrame = CFrame.new(CFG.FieldPos) })
                 tw:Play()
                 tw.Completed:Wait()
             end)
@@ -400,23 +376,26 @@ task.spawn(function()
     end
 end)
 
--- ── 5. AUTO FARM — Змейка (Heartbeat + CFrame) ──
+-- ── 5. AUTO FARM — Змейка (Heartbeat + CFrame) ───
 do
-    local snakeDir   = 1
-    local snakeRow   = 0
-    local targetPos  = nil
-    local prevActive = false
+    local RS  = game:GetService("RunService")
+    local GAP = 8  -- расстояние между линиями змейки (studs)
+
+    -- Состояние змейки
+    local snakeDir = 1
+    local snakeRow = 0
+    local targetPos = nil
 
     local function buildTarget()
         if not CFG.FieldPos then return nil end
         local c = CFG.FieldPos
         local r = CFG.FieldRadius
-        return Vector3.new(c.X + snakeDir * r, HRP and HRP.Position.Y or c.Y, c.Z - r + snakeRow)
+        return Vector3.new(c.X + snakeDir * r, c.Y, c.Z - r + snakeRow)
     end
 
     local function nextRow()
         snakeDir = -snakeDir
-        snakeRow = snakeRow + CFG.SnakeGap
+        snakeRow = snakeRow + GAP
         if snakeRow > CFG.FieldRadius * 2 then
             snakeRow = 0
             debugLog("🐍 Snake: full cycle, restarting")
@@ -424,52 +403,61 @@ do
         targetPos = buildTarget()
     end
 
-    RunService.Heartbeat:Connect(function(dt)
+    local prevActive = false
+
+    RS.Heartbeat:Connect(function(dt)
+        -- Проверки
         if not CFG.AutoFarm or _converting then
             if prevActive then
                 prevActive = false
-                targetPos  = nil
+                targetPos = nil
             end
             return
         end
         if not HRP or not Hum or Hum.Health <= 0 then return end
         if not CFG.FieldPos then return end
 
+        -- Инициализация при включении
         if not targetPos then
-            snakeRow   = 0
-            snakeDir   = 1
-            targetPos  = buildTarget()
+            snakeRow = 0
+            snakeDir = 1
+            targetPos = buildTarget()
             prevActive = true
         end
         if not targetPos then return end
 
         local myPos = HRP.Position
-        local dx = targetPos.X - myPos.X
-        local dz = targetPos.Z - myPos.Z
+        local tx, tz = targetPos.X, targetPos.Z
+        local dx, dz = tx - myPos.X, tz - myPos.Z
         local dist = math.sqrt(dx * dx + dz * dz)
 
-        if dist < 2 then
+        if dist < 3 then
             nextRow()
             return
         end
 
-        local step = math.min(CFG.WalkSpeed * dt, dist)
-        local nx, nz = dx / dist, dz / dist
+        -- Скорость = установленная в слайдере (не зависит от токенов скорости)
+        local speed = CFG.SpeedHack and CFG.WalkSpeed or defaultSpeed
+        local step  = math.min(speed * dt, dist)
+        local nx, nz = dx / dist, dz / dist  -- нормализованный вектор
 
+        -- Новая позиция: X/Z по змейке, Y от текущей (следуем рельефу)
         local newX = myPos.X + nx * step
         local newZ = myPos.Z + nz * step
-        local newY = myPos.Y
+        local newY = myPos.Y  -- сохраняем текущую высоту
 
         pcall(function()
-            HRP.CFrame = CFrame.new(
-                Vector3.new(newX, newY, newZ),
-                Vector3.new(newX + nx, newY, newZ + nz)
-            )
-            HRP.AssemblyLinearVelocity  = Vector3.new(0, HRP.AssemblyLinearVelocity.Y, 0)
+            -- Поворот персонажа по направлению движения
+            local look = Vector3.new(nx, 0, nz)
+            HRP.CFrame = CFrame.new(Vector3.new(newX, newY, newZ), Vector3.new(newX + nx, newY, newZ + nz))
+
+            -- Обнуляем Velocity — убираем скольжение
+            HRP.AssemblyLinearVelocity = Vector3.new(0, HRP.AssemblyLinearVelocity.Y, 0)
             HRP.AssemblyAngularVelocity = Vector3.zero
         end)
     end)
 end
 
 -- ════════════════════════════════════════════════════
-debugLog("✅ v15 загружен — Remotes убраны, Convert = Tween без ожидания")
+debugLog("✅ Скрипт загружен! v13 — Snake Heartbeat + AntiSlide")
+debugLog("Remotes: ToolClick=" .. tostring(R.ToolClick ~= nil))

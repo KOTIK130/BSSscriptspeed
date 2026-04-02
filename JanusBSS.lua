@@ -541,7 +541,7 @@ task.spawn(function()
         end)
 
         -- Ждём 5 секунд у улья
-        task.wait(12)
+        task.wait(15)
 
         -- Плавно возвращаемся на поле с noclip
         if CFG.FieldPos then

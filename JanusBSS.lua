@@ -45,7 +45,7 @@ local CFG = {
 
     AutoConvert  = false,
     HivePos      = nil,
-    ConvertSpeed = 80,   -- скорость полёта к улью и обратно (studs/sec)
+    ConvertSpeed = 80,
 
     ItemSlots = {
         [1] = { Enabled = false, Delay = 1 },
@@ -105,7 +105,8 @@ local function findPollenLabel()
                 local t = (c.Text or ""):gsub("[,%s]", "")
                 local a, b = t:match("^(%d+)/(%d+)$")
                 if a and b and tonumber(b) > 100000 then
-                    _pollenCache = c; return c
+                    _pollenCache = c
+                    return c
                 end
             end
             local f = scan(c, d + 1)
@@ -145,58 +146,117 @@ local ParaStatus = TFarm:CreateParagraph({ Title = "Status", Content = "● Idle
 local ParaPollen = TFarm:CreateParagraph({ Title = "Pollen", Content = "0.0%" })
 
 local function setStatus(s)
-    pcall(function() ParaStatus:Set({ Title = "Status", Content = s }) end)
+    pcall(function()
+        ParaStatus:Set({ Title = "Status", Content = s })
+    end)
 end
 
 -- ── Farm tab ──
 TFarm:CreateSection("Auto Farm")
 
-TFarm:CreateToggle({ Name = "Auto Farm (Snake)", CurrentValue = false, Callback = function(v)
-    CFG.AutoFarm = v
-    setStatus(v and "● Farming..." or "● Idle")
-end })
-
-TFarm:CreateToggle({ Name = "Auto Dig", CurrentValue = false, Callback = function(v)
-    CFG.AutoDig = v
-end })
-
-TFarm:CreateToggle({ Name = "Auto Convert  ⚠ нужны точки!", CurrentValue = false, Callback = function(v)
-    CFG.AutoConvert = v
-    if v and (not CFG.HivePos or not CFG.FieldPos) then
-        Rayfield:Notify({ Title = "⚠ Внимание", Content = "Установи точки во вкладке Positions!", Duration = 5 })
+TFarm:CreateToggle({
+    Name = "Auto Farm (Snake)",
+    CurrentValue = false,
+    Callback = function(v)
+        CFG.AutoFarm = v
+        setStatus(v and "● Farming..." or "● Idle")
     end
-end })
+})
+
+TFarm:CreateToggle({
+    Name = "Auto Dig",
+    CurrentValue = false,
+    Callback = function(v)
+        CFG.AutoDig = v
+    end
+})
+
+TFarm:CreateToggle({
+    Name = "Auto Convert  ⚠ нужны точки!",
+    CurrentValue = false,
+    Callback = function(v)
+        CFG.AutoConvert = v
+        if v and (not CFG.HivePos or not CFG.FieldPos) then
+            Rayfield:Notify({
+                Title = "⚠ Внимание",
+                Content = "Установи точки во вкладке Positions!",
+                Duration = 5
+            })
+        end
+    end
+})
 
 TFarm:CreateSection("Speed")
 
-TFarm:CreateToggle({ Name = "Speed Hack (CFrame)", CurrentValue = false, Callback = function(v)
-    CFG.SpeedHack = v
-end })
-
-TFarm:CreateSlider({ Name = "Farm Speed (studs/s)", Range = { 16, 500 }, Increment = 1, CurrentValue = 70,
-    Callback = function(v) CFG.WalkSpeed = v end
+TFarm:CreateToggle({
+    Name = "Speed Hack (CFrame)",
+    CurrentValue = false,
+    Callback = function(v)
+        CFG.SpeedHack = v
+    end
 })
 
-TFarm:CreateSlider({ Name = "Convert Flight Speed (studs/s)", Range = { 20, 300 }, Increment = 5, CurrentValue = 80,
-    Callback = function(v) CFG.ConvertSpeed = v end
+TFarm:CreateSlider({
+    Name = "Farm Speed (studs/s)",
+    Range = { 16, 500 },
+    Increment = 1,
+    CurrentValue = 70,
+    Callback = function(v)
+        CFG.WalkSpeed = v
+    end
+})
+
+TFarm:CreateSlider({
+    Name = "Convert Flight Speed (studs/s)",
+    Range = { 20, 300 },
+    Increment = 5,
+    CurrentValue = 80,
+    Callback = function(v)
+        CFG.ConvertSpeed = v
+    end
 })
 
 TFarm:CreateSection("Farm Settings")
 
-TFarm:CreateSlider({ Name = "Field Radius", Range = { 10, 150 }, Increment = 5, CurrentValue = 45,
-    Callback = function(v) CFG.FieldRadius = v end })
+TFarm:CreateSlider({
+    Name = "Field Radius",
+    Range = { 10, 150 },
+    Increment = 5,
+    CurrentValue = 45,
+    Callback = function(v)
+        CFG.FieldRadius = v
+    end
+})
 
-TFarm:CreateSlider({ Name = "Snake Gap (studs)", Range = { 2, 20 }, Increment = 1, CurrentValue = 8,
-    Callback = function(v) CFG.SnakeGap = v end })
+TFarm:CreateSlider({
+    Name = "Snake Gap (studs)",
+    Range = { 2, 20 },
+    Increment = 1,
+    CurrentValue = 8,
+    Callback = function(v)
+        CFG.SnakeGap = v
+    end
+})
 
 -- ── Items tab ──
 for i = 1, 7 do
     TItem:CreateSection("Slot " .. i)
-    TItem:CreateToggle({ Name = "Slot " .. i .. " Enabled", CurrentValue = false, Callback = function(v)
-        CFG.ItemSlots[i].Enabled = v
-    end })
-    TItem:CreateSlider({ Name = "Slot " .. i .. " Delay (sec)", Range = { 1, 300 }, Increment = 1, CurrentValue = 1,
-        Callback = function(v) CFG.ItemSlots[i].Delay = v end })
+    TItem:CreateToggle({
+        Name = "Slot " .. i .. " Enabled",
+        CurrentValue = false,
+        Callback = function(v)
+            CFG.ItemSlots[i].Enabled = v
+        end
+    })
+    TItem:CreateSlider({
+        Name = "Slot " .. i .. " Delay (sec)",
+        Range = { 1, 300 },
+        Increment = 1,
+        CurrentValue = 1,
+        Callback = function(v)
+            CFG.ItemSlots[i].Delay = v
+        end
+    })
 end
 
 -- ── Positions tab ──
@@ -205,64 +265,122 @@ TPos:CreateSection("⚠ Установи ДО фарма!")
 local HivePara  = TPos:CreateParagraph({ Title = "Hive",  Content = "не установлен" })
 local FieldPara = TPos:CreateParagraph({ Title = "Field", Content = "не установлен" })
 
-TPos:CreateButton({ Name = "📍 Set Hive  (встань у улья)", Callback = function()
-    if not HRP then return end
-    CFG.HivePos = HRP.Position
-    local p = CFG.HivePos
-    HivePara:Set({ Title = "Hive ✓", Content = ("X:%.1f  Y:%.1f  Z:%.1f"):format(p.X, p.Y, p.Z) })
-    Rayfield:Notify({ Title = "Улей ✓", Content = "Точка сохранена", Duration = 3 })
-end })
+TPos:CreateButton({
+    Name = "📍 Set Hive  (встань у улья)",
+    Callback = function()
+        if not HRP then return end
+        CFG.HivePos = HRP.Position
+        local p = CFG.HivePos
+        HivePara:Set({
+            Title = "Hive ✓",
+            Content = ("X:%.1f  Y:%.1f  Z:%.1f"):format(p.X, p.Y, p.Z)
+        })
+        Rayfield:Notify({
+            Title = "Улей ✓",
+            Content = "Точка сохранена",
+            Duration = 3
+        })
+    end
+})
 
-TPos:CreateButton({ Name = "📍 Set Field  (встань в центр поля)", Callback = function()
-    if not HRP then return end
-    CFG.FieldPos = HRP.Position
-    local p = CFG.FieldPos
-    FieldPara:Set({ Title = "Field ✓", Content = ("X:%.1f  Y:%.1f  Z:%.1f"):format(p.X, p.Y, p.Z) })
-    Rayfield:Notify({ Title = "Поле ✓", Content = "Точка сохранена", Duration = 3 })
-end })
+TPos:CreateButton({
+    Name = "📍 Set Field  (встань в центр поля)",
+    Callback = function()
+        if not HRP then return end
+        CFG.FieldPos = HRP.Position
+        local p = CFG.FieldPos
+        FieldPara:Set({
+            Title = "Field ✓",
+            Content = ("X:%.1f  Y:%.1f  Z:%.1f"):format(p.X, p.Y, p.Z)
+        })
+        Rayfield:Notify({
+            Title = "Поле ✓",
+            Content = "Точка сохранена",
+            Duration = 3
+        })
+    end
+})
 
-TPos:CreateButton({ Name = "🗑 Сбросить точки", Callback = function()
-    CFG.HivePos = nil; CFG.FieldPos = nil
-    HivePara:Set({ Title = "Hive",  Content = "не установлен" })
-    FieldPara:Set({ Title = "Field", Content = "не установлен" })
-    Rayfield:Notify({ Title = "Сброс", Content = "Точки очищены", Duration = 3 })
-end })
+TPos:CreateButton({
+    Name = "🗑 Сбросить точки",
+    Callback = function()
+        CFG.HivePos = nil
+        CFG.FieldPos = nil
+        HivePara:Set({ Title = "Hive",  Content = "не установлен" })
+        FieldPara:Set({ Title = "Field", Content = "не установлен" })
+        Rayfield:Notify({
+            Title = "Сброс",
+            Content = "Точки очищены",
+            Duration = 3
+        })
+    end
+})
 
 -- ── Debug tab ──
 TDebug:CreateSection("Логирование")
 
-local DebugPara = TDebug:CreateParagraph({ Title = "Лог", Content = "Последние записи появятся здесь" })
+local DebugPara = TDebug:CreateParagraph({
+    Title = "Лог",
+    Content = "Последние записи появятся здесь"
+})
 
-TDebug:CreateButton({ Name = "💾 Сохранить лог (.txt)", Callback = function()
-    local ok, err = saveLog()
-    if ok then
-        Rayfield:Notify({ Title = "✅ Лог сохранён", Content = "Файл: workspace/bss_debug_log.txt\nСтрок: " .. #_logBuffer, Duration = 5 })
-        debugLog("Лог сохранён в bss_debug_log.txt (" .. #_logBuffer .. " строк)")
-    else
-        Rayfield:Notify({ Title = "❌ Ошибка", Content = tostring(err), Duration = 5 })
+TDebug:CreateButton({
+    Name = "💾 Сохранить лог (.txt)",
+    Callback = function()
+        local ok, err = saveLog()
+        if ok then
+            Rayfield:Notify({
+                Title = "✅ Лог сохранён",
+                Content = "Файл: workspace/bss_debug_log.txt\nСтрок: " .. #_logBuffer,
+                Duration = 5
+            })
+            debugLog("Лог сохранён в bss_debug_log.txt (" .. #_logBuffer .. " строк)")
+        else
+            Rayfield:Notify({
+                Title = "❌ Ошибка",
+                Content = tostring(err),
+                Duration = 5
+            })
+        end
     end
-end })
+})
 
-TDebug:CreateButton({ Name = "🗑 Очистить лог", Callback = function()
-    _logBuffer = {}
-    Rayfield:Notify({ Title = "🗑 Очищено", Content = "Лог очищен", Duration = 3 })
-end })
-
-TDebug:CreateButton({ Name = "📋 Показать последние 10 записей", Callback = function()
-    local start = math.max(1, #_logBuffer - 9)
-    local lines = {}
-    for i = start, #_logBuffer do
-        table.insert(lines, _logBuffer[i])
+TDebug:CreateButton({
+    Name = "🗑 Очистить лог",
+    Callback = function()
+        _logBuffer = {}
+        Rayfield:Notify({
+            Title = "🗑 Очищено",
+            Content = "Лог очищен",
+            Duration = 3
+        })
     end
-    local txt = #lines > 0 and table.concat(lines, "\n") or "Лог пуст"
-    DebugPara:Set({ Title = "Лог (последние " .. #lines .. ")", Content = txt })
-end })
+})
+
+TDebug:CreateButton({
+    Name = "📋 Показать последние 10 записей",
+    Callback = function()
+        local start = math.max(1, #_logBuffer - 9)
+        local lines = {}
+        for i = start, #_logBuffer do
+            table.insert(lines, _logBuffer[i])
+        end
+        local txt = #lines > 0 and table.concat(lines, "\n") or "Лог пуст"
+        DebugPara:Set({
+            Title = "Лог (последние " .. #lines .. ")",
+            Content = txt
+        })
+    end
+})
 
 -- Обновление поллена
 task.spawn(function()
     while task.wait(0.8) do
         pcall(function()
-            ParaPollen:Set({ Title = "Pollen", Content = ("%.1f%%"):format(getPollen()) })
+            ParaPollen:Set({
+                Title = "Pollen",
+                Content = ("%.1f%%"):format(getPollen())
+            })
         end)
     end
 end)
@@ -304,16 +422,21 @@ end
 task.spawn(function()
     while task.wait(0.1) do
         if CFG.AutoDig and R.ToolClick then
-            pcall(function() R.ToolClick:InvokeServer() end)
+            pcall(function()
+                R.ToolClick:InvokeServer()
+            end)
         end
     end
 end)
 
 -- ── 3. AUTO ITEM ──────────────────────────────────
 local SlotKeys = {
-    [1] = Enum.KeyCode.One,   [2] = Enum.KeyCode.Two,
-    [3] = Enum.KeyCode.Three, [4] = Enum.KeyCode.Four,
-    [5] = Enum.KeyCode.Five,  [6] = Enum.KeyCode.Six,
+    [1] = Enum.KeyCode.One,
+    [2] = Enum.KeyCode.Two,
+    [3] = Enum.KeyCode.Three,
+    [4] = Enum.KeyCode.Four,
+    [5] = Enum.KeyCode.Five,
+    [6] = Enum.KeyCode.Six,
     [7] = Enum.KeyCode.Seven,
 }
 
@@ -337,30 +460,70 @@ end
 
 -- ── 4. AUTO CONVERT (CFrame-полёт) ────────────────
 
--- Плавный CFrame-полёт к точке (task.wait(0.05) ≈ 20 fps)
 local function flyTo(target, speed)
     while HRP do
         local pos  = HRP.Position
         local diff = target - pos
         local dist = diff.Magnitude
         if dist < 2 then break end
+
         local step = math.min(speed * 0.05, dist)
         local newPos = pos + diff.Unit * step
+
         pcall(function()
             HRP.CFrame = CFrame.new(newPos)
             HRP.AssemblyLinearVelocity  = Vector3.zero
             HRP.AssemblyAngularVelocity = Vector3.zero
         end)
+
         task.wait(0.05)
     end
+end
+
+local function setNoclip(state)
+    if not Char then return end
+    for _, v in ipairs(Char:GetDescendants()) do
+        if v:IsA("BasePart") then
+            v.CanCollide = not state
+        end
+    end
+end
+
+local function flyToSmoothNoclip(target, speed)
+    setNoclip(true)
+
+    while HRP do
+        local pos = HRP.Position
+        local diff = target - pos
+        local dist = diff.Magnitude
+
+        if dist < 2 then
+            break
+        end
+
+        local dt = RunService.Heartbeat:Wait()
+        local step = math.min(speed * dt, dist)
+        local newPos = pos + diff.Unit * step
+
+        pcall(function()
+            HRP.CFrame = CFrame.new(
+                newPos,
+                Vector3.new(target.X, newPos.Y, target.Z)
+            )
+            HRP.AssemblyLinearVelocity  = Vector3.zero
+            HRP.AssemblyAngularVelocity = Vector3.zero
+        end)
+    end
+
+    setNoclip(false)
 end
 
 task.spawn(function()
     while task.wait(0.3) do
         if not CFG.AutoConvert then continue end
-        if not CFG.HivePos    then continue end
-        if _converting        then continue end
-        if getPollen() < 99   then continue end
+        if not CFG.HivePos then continue end
+        if _converting then continue end
+        if getPollen() < 99 then continue end
 
         _converting = true
         debugLog("Convert START — pollen: " .. ("%.1f%%"):format(getPollen()))
@@ -376,17 +539,20 @@ task.spawn(function()
             task.wait(0.15)
             VIM:SendKeyEvent(false, Enum.KeyCode.E, false, game)
         end)
-        task.wait(9)
 
-        -- Летим обратно на поле
+        -- Ждём 5 секунд у улья
+        task.wait(5)
+
+        -- Плавно возвращаемся на поле с noclip
         if CFG.FieldPos then
-            setStatus("● конвертация → поле")
-            flyTo(CFG.FieldPos, CFG.ConvertSpeed)
+            setStatus("● возврат на поле")
+            flyToSmoothNoclip(CFG.FieldPos, CFG.ConvertSpeed)
         end
 
+        -- Выходим из режима конвертации, AutoFarm сам продолжит
         _converting = false
         debugLog("Convert END")
-        setStatus(CFG.AutoFarm and "● Farming..." or (CFG.AutoConvert and "● Waiting..." or "● Idle"))
+        setStatus(CFG.AutoFarm and "● Farming..." or "● Idle")
     end
 end)
 
